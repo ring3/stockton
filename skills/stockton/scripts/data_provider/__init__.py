@@ -15,19 +15,18 @@
 
 from .base import BaseFetcher, DataFetcherManager
 
-# 可选的 efinance 数据源（严格检查，确保库可用）
+# 可选的 efinance 数据源
 try:
     from .efinance_fetcher import EfinanceFetcher
     import efinance as _  # 验证库可用
 except Exception:
     EfinanceFetcher = None
 
-# 主要的 akshare 数据源（必需）
+# 可选的 akshare 数据源（任何异常都捕获）
 try:
     from .akshare_fetcher import AkshareFetcher
-except ImportError:
+except Exception:
     AkshareFetcher = None
-    raise ImportError("请安装 akshare: pip install akshare")
 
 __all__ = [
     'BaseFetcher',

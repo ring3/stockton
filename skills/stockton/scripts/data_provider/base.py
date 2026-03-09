@@ -254,27 +254,27 @@ class DataFetcherManager:
         初始化默认数据源列表
 
         按优先级排序：
-        1. AkshareFetcher (Priority 1) - 主要数据源
-        2. EfinanceFetcher (Priority 0) - 可选增强（如果安装）
+        1. EfinanceFetcher (Priority 0) - 优先尝试
+        2. AkshareFetcher (Priority 1) - 备用数据源
+        
+        说明：两者都是可选的，只要有一个可用即可工作
         """
-        # 主要数据源：akshare（必需）
+        # 优先尝试 efinance（如果安装）
+        try:
+            from .efinance_fetcher import EfinanceFetcher
+            import efinance as _  # 验证库真的可用
+            self._fetchers.append(EfinanceFetcher())
+            logger.info("EfinanceFetcher 已加载（优先使用）")
+        except Exception as e:
+            logger.debug(f"EfinanceFetcher 不可用: {e}")
+
+        # 备用数据源：akshare（可选）
         try:
             from .akshare_fetcher import AkshareFetcher
             self._fetchers.append(AkshareFetcher())
-            logger.info("AkshareFetcher 已加载（主数据源）")
-        except ImportError as e:
-            logger.error(f"AkshareFetcher 不可用: {e}")
-            raise ImportError("请安装 akshare: pip install akshare")
-
-        # 可选增强：efinance（如果安装）
-        try:
-            from .efinance_fetcher import EfinanceFetcher
-            # 验证 efinance 库是否真的可用
-            import efinance as _
-            self._fetchers.append(EfinanceFetcher())
-            logger.info("EfinanceFetcher 已加载（可选增强）")
-        except ImportError:
-            logger.debug("EfinanceFetcher 不可用（可选依赖，不影响使用）")
+            logger.info("AkshareFetcher 已加载")
+        except Exception as e:
+            logger.warning(f"AkshareFetcher 不可用: {e}")
 
         # 按优先级排序
         self._fetchers.sort(key=lambda f: f.priority)
@@ -283,7 +283,9 @@ class DataFetcherManager:
             logger.info(f"已初始化 {len(self._fetchers)} 个数据源: " +
                        ", ".join([f.name for f in self._fetchers]))
         else:
-            logger.error("没有可用的数据源！请安装 akshare: pip install akshare")
+            logger.error("没有可用的数据源！请安装至少一个数据源：")
+            logger.error("  pip install efinance    # 推荐，更稳定")
+            logger.error("  pip install akshare     # 备用")
 
     def add_fetcher(self, fetcher: BaseFetcher) -> None:
         """添加数据源并重新排序"""
