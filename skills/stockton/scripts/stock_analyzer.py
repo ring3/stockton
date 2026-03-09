@@ -296,12 +296,22 @@ class StockTrendAnalyzer:
         
         # 获取最新数据
         latest = df.iloc[-1]
-        result.indicators.current_price = float(latest['close'])
-        result.indicators.ma5 = float(latest['ma5'])
-        result.indicators.ma10 = float(latest['ma10'])
-        result.indicators.ma20 = float(latest['ma20'])
-        result.indicators.ma60 = float(latest.get('ma60', 0))
-        result.indicators.volume_ratio_5d = float(latest.get('volume_ratio', 1.0))
+        
+        # 安全转换为 float（处理 None 值）
+        def safe_float(val, default=0.0):
+            try:
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return default
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+        
+        result.indicators.current_price = safe_float(latest['close'])
+        result.indicators.ma5 = safe_float(latest['ma5'])
+        result.indicators.ma10 = safe_float(latest['ma10'])
+        result.indicators.ma20 = safe_float(latest['ma20'])
+        result.indicators.ma60 = safe_float(latest.get('ma60'), 0)
+        result.indicators.volume_ratio_5d = safe_float(latest.get('volume_ratio'), 1.0)
         
         # 1. 趋势判断
         self._analyze_trend(df, result)

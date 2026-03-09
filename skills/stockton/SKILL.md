@@ -487,21 +487,48 @@ python test_llm_integration.py
 
 ---
 
-## 渚濊禆瑕佹眰
+## 依赖要求
+
+### Python 版本
+- **Python 3.8+** （推荐）
+- Python 3.6/3.7 也支持，但需要额外处理（见下方说明）
+
+### 安装依赖
 
 ```bash
 pip install pandas numpy akshare
 ```
 
-**鍙€夛紙澧炲己浣撻獙锛?*:
+**可选（增强体验）**:
 ```bash
 pip install efinance
 ```
 
-**璇存槑**: 
-- akshare 鏄繀闇€鐨勪富瑕佹暟鎹簮
-- efinance 鏄彲閫夌殑锛屽畨瑁呭悗浼氫紭鍏堜娇鐢紙鏇寸ǔ瀹氾級
-- 濡傛灉 efinance 鏈畨瑁咃紝鍙娇鐢?akshare 涔熻兘姝ｅ父宸ヤ綔
+**说明**: 
+- akshare 是必需的主要数据源
+- efinance 是可选的，安装后会优先使用（更稳定）
+- 如果 efinance 未安装，只使用 akshare 也能正常工作
+
+### Python 3.6/3.7 特别说明
+
+在 Python 3.6/3.7 环境中，akshare 的依赖库 `multitasking` 可能会报错：
+```
+ImportError: cannot import name 'TypedDict'
+```
+
+**解决方案** - 降级 multitasking 到兼容版本：
+```bash
+pip install multitasking==0.0.9
+```
+
+或修改 `multitasking/__init__.py` 中的导入：
+```python
+# 将
+from typing import TypedDict
+# 改为
+from typing import Dict
+TaskConfig = Dict[str, Any]
+```
 
 ---
 
