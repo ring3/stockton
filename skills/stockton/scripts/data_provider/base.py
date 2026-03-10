@@ -123,6 +123,53 @@ class BaseFetcher(ABC):
         """
         pass
 
+    # ========== 大盘数据接口（市场分析用）==========
+
+    @abstractmethod
+    def _get_market_indices(self) -> pd.DataFrame:
+        """
+        获取主要指数实时行情（大盘分析用）
+
+        Returns:
+            DataFrame 包含列：
+            - code: 指数代码（如 '000001', '399001'）
+            - name: 指数名称（如 '上证指数', '深证成指'）
+            - price: 最新点位
+            - change_pct: 涨跌幅
+            - change_amount: 涨跌额
+            - volume: 成交量
+            - amount: 成交额
+            获取失败返回空 DataFrame
+        """
+        pass
+
+    @abstractmethod
+    def _get_market_overview(self) -> pd.DataFrame:
+        """
+        获取市场概览数据（A股实时行情统计）
+
+        Returns:
+            DataFrame 包含全部A股实时行情，用于统计：
+            - 上涨/下跌家数
+            - 涨停/跌停家数
+            列名与个股实时行情一致
+        """
+        pass
+
+    @abstractmethod
+    def _get_sector_rankings(self) -> pd.DataFrame:
+        """
+        获取行业板块涨跌排行
+
+        Returns:
+            DataFrame 包含列：
+            - name: 板块名称
+            - change_pct: 涨跌幅
+            - leading_stocks: 领涨股（可选）
+            获取失败返回空 DataFrame
+        """
+        pass
+
     def get_daily_data(
         self,
         stock_code: str,
@@ -410,3 +457,90 @@ class DataFetcherManager:
     def available_fetchers(self) -> List[str]:
         """返回可用数据源名称列表"""
         return [f.name for f in self._fetchers]
+
+    # ========== 大盘数据获取方法 ==========
+
+    def get_market_indices(self) -> Tuple[pd.DataFrame, str]:
+        """
+        获取主要指数实时行情（自动切换数据源）
+        
+        Returns:
+            Tuple[DataFrame, str]: (指数数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取指数行情...")
+                df = fetcher._get_market_indices()
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取指数行情")
+                    return df, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        # 所有数据源都失败
+        error_summary = "所有数据源获取指数行情失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    def get_market_overview(self) -> Tuple[pd.DataFrame, str]:
+        """
+        获取市场概览数据（自动切换数据源）
+        
+        Returns:
+            Tuple[DataFrame, str]: (A股实时数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取市场概览...")
+                df = fetcher._get_market_overview()
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取市场概览")
+                    return df, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = "所有数据源获取市场概览失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    def get_sector_rankings(self) -> Tuple[pd.DataFrame, str]:
+        """
+        获取行业板块排行（自动切换数据源）
+        
+        Returns:
+            Tuple[DataFrame, str]: (板块数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取板块排行...")
+                df = fetcher._get_sector_rankings()
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取板块排行")
+                    return df, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = "所有数据源获取板块排行失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)

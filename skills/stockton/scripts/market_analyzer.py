@@ -10,10 +10,10 @@
 3. 获取板块涨跌榜（领涨/领跌板块）
 4. 生成市场概览数据，支持 JSON 格式传给 LLM
 
-数据源：akshare
-- 指数行情: ak.stock_zh_index_spot_sina()
-- A股实时行情: ak.stock_zh_a_spot_em()
-- 行业板块: ak.stock_board_industry_name_em()
+数据源：通过 DataFetcherManager 获取，支持多源自动切换
+- 指数行情: 主要指数实时行情
+- A股实时行情: 全市场涨跌统计
+- 行业板块: 板块涨跌排行
 """
 
 import logging
@@ -26,18 +26,12 @@ from typing import Optional, Dict, Any, List, Union
 import pandas as pd
 import numpy as np
 
-# 先禁用代理，避免连接问题
-import os
-os.environ['HTTP_PROXY'] = ''
-os.environ['HTTPS_PROXY'] = ''
-os.environ['http_proxy'] = ''
-os.environ['https_proxy'] = ''
-
-# 尝试导入 akshare
+# 导入数据源管理器
 try:
-    import akshare as ak
+    from data_provider import DataFetcherManager, DataFetchError
 except ImportError:
-    ak = None
+    DataFetcherManager = None
+    DataFetchError = Exception
 
 logger = logging.getLogger(__name__)
 
@@ -218,35 +212,37 @@ class MarketDataAnalyzer:
     
     def __init__(self):
         """初始化大盘分析器"""
-        if ak is None:
-            raise ImportError("请安装 akshare: pip install akshare")
+        if DataFetcherManager is None:
+            raise ImportError("data_provider 模块不可用")
         
+        self._manager = DataFetcherManager()
         logger.info("大盘市场数据分析器初始化成功")
     
-    def _call_akshare_with_retry(self, fn, name: str, attempts: int = 2):
+    def _get_data_with_retry(self, method_name: str, display_name: str, attempts: int = 2):
         """
-        带重试的 akshare 调用
+        带重试的数据获取
         
         Args:
-            fn: 要执行的函数
-            name: 功能名称（用于日志）
+            method_name: DataFetcherManager 方法名
+            display_name: 功能名称（用于日志）
             attempts: 重试次数
             
         Returns:
-            函数执行结果，失败返回 None
+            (DataFrame, source_name) 或 (None, None)
         """
         last_error: Optional[Exception] = None
         for attempt in range(1, attempts + 1):
             try:
-                return fn()
+                method = getattr(self._manager, method_name)
+                return method()
             except Exception as e:
                 last_error = e
-                logger.warning(f"[大盘] {name} 获取失败 (attempt {attempt}/{attempts}): {e}")
+                logger.warning(f"[大盘] {display_name} 获取失败 (attempt {attempt}/{attempts}): {e}")
                 if attempt < attempts:
                     time.sleep(min(2 ** attempt, 5))
         
-        logger.error(f"[大盘] {name} 最终失败: {last_error}")
-        return None
+        logger.error(f"[大盘] {display_name} 最终失败: {last_error}")
+        return None, None
     
     def get_market_overview(self) -> MarketOverview:
         """
@@ -282,42 +278,42 @@ class MarketDataAnalyzer:
         try:
             logger.info("[大盘] 获取主要指数实时行情...")
             
-            # 使用 akshare 获取指数行情
-            df = self._call_akshare_with_retry(
-                ak.stock_zh_index_spot_sina, 
-                "指数行情", 
+            # 通过 DataFetcherManager 获取指数行情
+            df, source_name = self._get_data_with_retry(
+                'get_market_indices',
+                "指数行情",
                 attempts=2
             )
             
             if df is not None and not df.empty:
                 for code, name in self.MAIN_INDICES.items():
                     # 查找对应指数
-                    row = df[df['代码'] == code]
+                    row = df[df['code'] == code]
                     if row.empty:
-                        # 尝试带前缀查找
-                        row = df[df['代码'].str.contains(code)]
+                        # 尝试模糊匹配
+                        row = df[df['code'].str.contains(code, na=False)]
                     
                     if not row.empty:
                         row = row.iloc[0]
                         index = MarketIndex(
                             code=code,
                             name=name,
-                            current=float(row.get('最新价', 0) or 0),
-                            change=float(row.get('涨跌额', 0) or 0),
-                            change_pct=float(row.get('涨跌幅', 0) or 0),
-                            open=float(row.get('今开', 0) or 0),
-                            high=float(row.get('最高', 0) or 0),
-                            low=float(row.get('最低', 0) or 0),
-                            prev_close=float(row.get('昨收', 0) or 0),
-                            volume=float(row.get('成交量', 0) or 0),
-                            amount=float(row.get('成交额', 0) or 0),
+                            current=float(row.get('price', 0) or 0),
+                            change=float(row.get('change_amount', 0) or 0),
+                            change_pct=float(row.get('change_pct', 0) or 0),
+                            open=float(row.get('open', 0) or 0),
+                            high=float(row.get('high', 0) or 0),
+                            low=float(row.get('low', 0) or 0),
+                            prev_close=float(row.get('prev_close', 0) or 0),
+                            volume=float(row.get('volume', 0) or 0),
+                            amount=float(row.get('amount', 0) or 0),
                         )
                         # 计算振幅
                         if index.prev_close > 0:
                             index.amplitude = (index.high - index.low) / index.prev_close * 100
                         indices.append(index)
                 
-                logger.info(f"[大盘] 获取到 {len(indices)} 个指数行情")
+                logger.info(f"[大盘] 从 {source_name} 获取到 {len(indices)} 个指数行情")
                 
         except Exception as e:
             logger.error(f"[大盘] 获取指数行情失败: {e}")
@@ -329,16 +325,16 @@ class MarketDataAnalyzer:
         try:
             logger.info("[大盘] 获取市场涨跌统计...")
             
-            # 获取全部A股实时行情
-            df = self._call_akshare_with_retry(
-                ak.stock_zh_a_spot_em, 
-                "A股实时行情", 
+            # 通过 DataFetcherManager 获取全部A股实时行情
+            df, source_name = self._get_data_with_retry(
+                'get_market_overview',
+                "A股实时行情",
                 attempts=2
             )
             
             if df is not None and not df.empty:
-                # 涨跌统计
-                change_col = '涨跌幅'
+                # 涨跌统计（尝试不同的列名）
+                change_col = '涨跌幅' if '涨跌幅' in df.columns else 'change_pct'
                 if change_col in df.columns:
                     df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
                     overview.up_count = len(df[df[change_col] > 0])
@@ -350,13 +346,13 @@ class MarketDataAnalyzer:
                     overview.limit_down_count = len(df[df[change_col] <= -9.9])
                 
                 # 两市成交额
-                amount_col = '成交额'
+                amount_col = '成交额' if '成交额' in df.columns else 'amount'
                 if amount_col in df.columns:
                     df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
                     overview.total_amount = df[amount_col].sum() / 1e8  # 转为亿元
                 
                 logger.info(
-                    f"[大盘] 涨:{overview.up_count} 跌:{overview.down_count} "
+                    f"[大盘] 从 {source_name} 获取: 涨:{overview.up_count} 跌:{overview.down_count} "
                     f"平:{overview.flat_count} 涨停:{overview.limit_up_count} "
                     f"跌停:{overview.limit_down_count} 成交额:{overview.total_amount:.0f}亿"
                 )
@@ -369,15 +365,18 @@ class MarketDataAnalyzer:
         try:
             logger.info("[大盘] 获取板块涨跌榜...")
             
-            # 获取行业板块行情
-            df = self._call_akshare_with_retry(
-                ak.stock_board_industry_name_em, 
-                "行业板块行情", 
+            # 通过 DataFetcherManager 获取行业板块行情
+            df, source_name = self._get_data_with_retry(
+                'get_sector_rankings',
+                "行业板块行情",
                 attempts=2
             )
             
             if df is not None and not df.empty:
-                change_col = '涨跌幅'
+                # 尝试不同的列名
+                change_col = '涨跌幅' if '涨跌幅' in df.columns else 'change_pct'
+                name_col = '板块名称' if '板块名称' in df.columns else 'name'
+                
                 if change_col in df.columns:
                     df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
                     df = df.dropna(subset=[change_col])
@@ -385,22 +384,22 @@ class MarketDataAnalyzer:
                     # 涨幅前5
                     top = df.nlargest(5, change_col)
                     overview.top_sectors = [
-                        SectorInfo(name=row['板块名称'], change_pct=row[change_col])
+                        SectorInfo(name=row[name_col], change_pct=row[change_col])
                         for _, row in top.iterrows()
                     ]
                     
                     # 跌幅前5
                     bottom = df.nsmallest(5, change_col)
                     overview.bottom_sectors = [
-                        SectorInfo(name=row['板块名称'], change_pct=row[change_col])
+                        SectorInfo(name=row[name_col], change_pct=row[change_col])
                         for _, row in bottom.iterrows()
                     ]
                     
                     logger.info(
-                        f"[大盘] 领涨板块: {[s.name for s in overview.top_sectors]}"
+                        f"[大盘] 从 {source_name} 获取领涨板块: {[s.name for s in overview.top_sectors]}"
                     )
                     logger.info(
-                        f"[大盘] 领跌板块: {[s.name for s in overview.bottom_sectors]}"
+                        f"[大盘] 从 {source_name} 获取领跌板块: {[s.name for s in overview.bottom_sectors]}"
                     )
                     
         except Exception as e:

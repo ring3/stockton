@@ -13,7 +13,7 @@
    - 支持多源切换：东方财富 → 新浪 → 腾讯 → 网易
 """
 
-from .base import BaseFetcher, DataFetcherManager
+from .base import BaseFetcher, DataFetcherManager, DataFetchError
 
 # 可选的 efinance 数据源
 try:

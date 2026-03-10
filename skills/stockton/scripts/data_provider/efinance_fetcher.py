@@ -371,6 +371,93 @@ class EfinanceFetcher(BaseFetcher):
             logger.error(f"[Efinance] 获取 {stock_code} 筹码分布失败: {e}")
             return None
 
+    def _get_market_indices(self) -> pd.DataFrame:
+        """
+        获取主要指数实时行情
+        
+        Returns:
+            DataFrame 包含主要指数数据
+        """
+        try:
+            import efinance as ef
+            
+            self._enforce_rate_limit()
+            logger.info("[Efinance] 获取主要指数行情...")
+            
+            # 通过 get_realtime_quotes 获取全部数据，然后过滤出指数
+            # 或者获取特定指数的历史数据
+            indices = ['000001', '399001', '399006', '000688']  # 上证、深证、创业、科创
+            index_names = ['上证指数', '深证成指', '创业板指', '科创50']
+            
+            results = []
+            for code, name in zip(indices, index_names):
+                try:
+                    df = ef.stock.get_quote_history(code, klt=101)
+                    if df is not None and not df.empty:
+                        latest = df.iloc[-1]
+                        results.append({
+                            'code': code,
+                            'name': name,
+                            'price': float(latest.get('最新价', 0)),
+                            'change_pct': float(latest.get('涨跌幅', 0)),
+                            'change_amount': float(latest.get('涨跌额', 0)),
+                            'volume': float(latest.get('成交量', 0)),
+                            'amount': float(latest.get('成交额', 0)),
+                        })
+                except Exception:
+                    continue
+            
+            return pd.DataFrame(results) if results else pd.DataFrame()
+            
+        except Exception as e:
+            logger.error(f"[Efinance] 获取指数行情失败: {e}")
+            return pd.DataFrame()
+
+    def _get_market_overview(self) -> pd.DataFrame:
+        """
+        获取市场概览（全部A股实时行情）
+        
+        Returns:
+            DataFrame 包含全部A股实时数据
+        """
+        try:
+            import efinance as ef
+            
+            self._enforce_rate_limit()
+            logger.info("[Efinance] 获取市场概览...")
+            
+            # 使用缓存的实时行情数据
+            global _realtime_cache
+            current_time = time.time()
+            if (_realtime_cache['data'] is not None and
+                current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
+                return _realtime_cache['data']
+            
+            df = ef.stock.get_realtime_quotes()
+            
+            if df is not None and not df.empty:
+                _realtime_cache['data'] = df
+                _realtime_cache['timestamp'] = current_time
+            
+            return df if df is not None else pd.DataFrame()
+            
+        except Exception as e:
+            logger.error(f"[Efinance] 获取市场概览失败: {e}")
+            return pd.DataFrame()
+
+    def _get_sector_rankings(self) -> pd.DataFrame:
+        """
+        获取行业板块涨跌排行
+        
+        注意：efinance 没有直接的板块排行接口，返回空 DataFrame
+        使用 akshare 作为备用
+        
+        Returns:
+            DataFrame 包含板块数据
+        """
+        logger.warning("[Efinance] 不支持行业板块排行，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码

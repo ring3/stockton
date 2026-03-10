@@ -408,6 +408,91 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取 {stock_code} 实时行情失败: {e}")
             return None
 
+    def _get_market_indices(self) -> pd.DataFrame:
+        """
+        获取主要指数实时行情
+        
+        Returns:
+            DataFrame 包含主要指数数据
+        """
+        try:
+            self._random_sleep()
+            logger.info("[Akshare] 获取主要指数行情...")
+            
+            df = self._ak.stock_zh_index_spot_sina()
+            
+            if df is None or df.empty:
+                return pd.DataFrame()
+            
+            # 标准化列名
+            column_mapping = {
+                '代码': 'code',
+                '名称': 'name',
+                '最新价': 'price',
+                '涨跌额': 'change_amount',
+                '涨跌幅': 'change_pct',
+                '成交量': 'volume',
+                '成交额': 'amount',
+            }
+            
+            for old, new in column_mapping.items():
+                if old in df.columns:
+                    df = df.rename(columns={old: new})
+            
+            # 只保留需要的列
+            keep_cols = ['code', 'name', 'price', 'change_pct', 'change_amount', 'volume', 'amount']
+            df = df[[col for col in keep_cols if col in df.columns]]
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取指数行情失败: {e}")
+            return pd.DataFrame()
+
+    def _get_market_overview(self) -> pd.DataFrame:
+        """
+        获取市场概览（全部A股实时行情）
+        
+        Returns:
+            DataFrame 包含全部A股实时数据
+        """
+        try:
+            self._random_sleep()
+            logger.info("[Akshare] 获取市场概览...")
+            
+            df = self._ak.stock_zh_a_spot_em()
+            
+            if df is None or df.empty:
+                return pd.DataFrame()
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取市场概览失败: {e}")
+            return pd.DataFrame()
+
+    def _get_sector_rankings(self) -> pd.DataFrame:
+        """
+        获取行业板块涨跌排行
+        
+        Returns:
+            DataFrame 包含板块数据
+        """
+        try:
+            self._random_sleep()
+            logger.info("[Akshare] 获取行业板块排行...")
+            
+            df = self._ak.stock_board_industry_name_em()
+            
+            if df is None or df.empty:
+                return pd.DataFrame()
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取板块排行失败: {e}")
+            return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码

@@ -60,6 +60,7 @@ htmlcov/
 stockton/**/__pycache__/
 stockton/**/*.py[cod]
 stockton/**/*$py.class
+skills/stockton/data/*.db
 data/*.data
 data/*.db
 
