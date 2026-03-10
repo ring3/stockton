@@ -229,35 +229,50 @@ def get_stock_data(
         name = f"股票{stock_code}"
         realtime_quote = None
         realtime_dict = None
+        
+        def _create_realtime_quote(rt_data):
+            """从字典创建 RealtimeQuote 对象"""
+            return RealtimeQuote(
+                code=stock_code,
+                name=name,
+                price=rt_data.get('price', 0.0),
+                change_pct=rt_data.get('change_pct', 0.0),
+                change_amount=rt_data.get('change_amount', 0.0),
+                volume=rt_data.get('volume', 0.0),
+                amount=rt_data.get('amount', 0.0),
+                turnover_rate=rt_data.get('turnover_rate', 0.0),
+                volume_ratio=rt_data.get('volume_ratio', 0.0),
+                amplitude=rt_data.get('amplitude', 0.0),
+                high=rt_data.get('high', 0.0),
+                low=rt_data.get('low', 0.0),
+                open_price=rt_data.get('open_price', 0.0),
+                pe_ratio=rt_data.get('pe_ratio', 0.0),
+                pb_ratio=rt_data.get('pb_ratio', 0.0),
+                total_mv=rt_data.get('total_mv', 0.0),
+                circ_mv=rt_data.get('circ_mv', 0.0),
+            )
+        
         try:
+            # 优先使用 efinance 获取实时行情
             if EfinanceFetcher:
                 ef_fetcher = EfinanceFetcher()
                 rt = ef_fetcher.get_realtime_quote(stock_code)
                 if rt:
                     if rt.get('name'):
                         name = rt['name']
-                    # 保存实时行情字典用于数据库存储
                     realtime_dict = rt
-                    # 保存完整的实时行情对象
-                    realtime_quote = RealtimeQuote(
-                        code=stock_code,
-                        name=name,
-                        price=rt.get('price', 0.0),
-                        change_pct=rt.get('change_pct', 0.0),
-                        change_amount=rt.get('change_amount', 0.0),
-                        volume=rt.get('volume', 0.0),
-                        amount=rt.get('amount', 0.0),
-                        turnover_rate=rt.get('turnover_rate', 0.0),
-                        volume_ratio=rt.get('volume_ratio', 0.0),
-                        amplitude=rt.get('amplitude', 0.0),
-                        high=rt.get('high', 0.0),
-                        low=rt.get('low', 0.0),
-                        open_price=rt.get('open', 0.0),
-                        pe_ratio=rt.get('pe_ratio', 0.0),
-                        pb_ratio=rt.get('pb_ratio', 0.0),
-                        total_mv=rt.get('total_mv', 0.0),
-                        circ_mv=rt.get('circ_mv', 0.0),
-                    )
+                    realtime_quote = _create_realtime_quote(rt)
+            
+            # 如果 efinance 失败，尝试使用 akshare
+            if realtime_dict is None and source_name == 'AkshareFetcher':
+                from data_provider import AkshareFetcher
+                ak_fetcher = AkshareFetcher()
+                rt = ak_fetcher.get_realtime_quote(stock_code)
+                if rt:
+                    if rt.get('name'):
+                        name = rt['name']
+                    realtime_dict = rt
+                    realtime_quote = _create_realtime_quote(rt)
         except Exception:
             pass
         

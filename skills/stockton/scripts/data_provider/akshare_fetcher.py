@@ -345,6 +345,69 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取 {stock_code} 筹码分布失败: {e}")
             return None
 
+    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取实时行情数据
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            实时行情字典，获取失败返回 None
+        """
+        try:
+            self._random_sleep()
+            
+            logger.info(f"[Akshare] 获取 {stock_code} 实时行情...")
+            
+            # 使用 akshare 获取实时行情（东方财富）
+            df = self._ak.stock_zh_a_spot_em()
+            
+            if df is None or df.empty:
+                logger.warning(f"[Akshare] 实时行情返回空数据")
+                return None
+            
+            # 查找指定股票
+            row = df[df['代码'] == stock_code]
+            if row.empty:
+                logger.warning(f"[Akshare] 未找到股票 {stock_code}")
+                return None
+            
+            row = row.iloc[0]
+            
+            # 安全获取数值
+            def safe_float(val, default=0.0):
+                try:
+                    if pd.isna(val):
+                        return default
+                    return float(val)
+                except:
+                    return default
+            
+            return {
+                'code': stock_code,
+                'name': str(row.get('名称', '')),
+                'price': safe_float(row.get('最新价')),
+                'change_pct': safe_float(row.get('涨跌幅')),
+                'change_amount': safe_float(row.get('涨跌额')),
+                'volume': safe_float(row.get('成交量')),
+                'amount': safe_float(row.get('成交额')),
+                'turnover_rate': safe_float(row.get('换手率')),
+                'volume_ratio': safe_float(row.get('量比')),
+                'amplitude': safe_float(row.get('振幅')),
+                'high': safe_float(row.get('最高')),
+                'low': safe_float(row.get('最低')),
+                'open_price': safe_float(row.get('今开')),
+                'pe_ratio': safe_float(row.get('市盈率-动态')),
+                'pb_ratio': safe_float(row.get('市净率')),
+                'total_mv': safe_float(row.get('总市值')),
+                'circ_mv': safe_float(row.get('流通市值')),
+            }
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取 {stock_code} 实时行情失败: {e}")
+            return None
+
 
 if __name__ == "__main__":
     # 测试代码
