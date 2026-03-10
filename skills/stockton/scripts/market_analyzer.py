@@ -95,6 +95,12 @@ class MarketOverview:
     top_sectors: List[SectorInfo] = field(default_factory=list)     # 涨幅前5板块
     bottom_sectors: List[SectorInfo] = field(default_factory=list)  # 跌幅前5板块
     
+    # 期货贴水数据（新增）
+    futures_basis: List[Dict[str, Any]] = field(default_factory=list)  # 股指期货贴水数据
+    
+    # ETF IV数据（新增）
+    etf_iv: Dict[str, Any] = field(default_factory=dict)  # ETF隐含波动率数据
+    
     # 元数据
     data_source: str = "akshare"
     fetch_time: str = ""
@@ -112,6 +118,8 @@ class MarketOverview:
             'total_amount': self.total_amount,
             'top_sectors': [s.to_dict() for s in self.top_sectors],
             'bottom_sectors': [s.to_dict() for s in self.bottom_sectors],
+            'futures_basis': self.futures_basis,
+            'etf_iv': self.etf_iv,
             'data_source': self.data_source,
             'fetch_time': self.fetch_time,
         }
@@ -179,6 +187,66 @@ class MarketOverview:
         
         lines.append(f"- 整体氛围: {sentiment}")
         lines.append(f"- 涨跌比: {self.up_count}:{self.down_count}")
+        
+        # 期货贴水数据（新增）
+        # 期货代码到股指名称的映射
+        futures_name_map = {
+            'IF': '沪深300',
+            'IC': '中证500', 
+            'IM': '中证1000',
+            'IH': '上证50'
+        }
+        
+        if self.futures_basis:
+            lines.extend(["", "## 股指期货贴水/升水"])
+            for basis in self.futures_basis:
+                futures_code = basis.get('futures_code', '')
+                index_name = basis.get('index_name', 'Unknown')
+                # 如果index_name为空或Unknown，使用映射表
+                if not index_name or index_name == 'Unknown':
+                    # 从期货代码提取前缀（如 IF0 -> IF）
+                    code_prefix = ''.join([c for c in futures_code if c.isalpha()])
+                    index_name = futures_name_map.get(code_prefix, futures_code)
+                
+                basis_val = basis.get('basis', 0)
+                basis_rate = basis.get('basis_rate', 0)
+                annual_rate = basis.get('annualized_rate', 0)
+                days = basis.get('days_to_expiry', 0)
+                
+                status = "升水" if basis_val > 0 else "贴水"
+                lines.append(
+                    f"- **{index_name}**({futures_code}): {status} {abs(basis_val):.2f}点 "
+                    f"({basis_rate:+.3f}%) | 年化{annual_rate:+.2f}% | 到期{days}天"
+                )
+            
+            # 添加贴水分析提示
+            lines.extend([
+                "",
+                "### 贴水/升水分析提示",
+                "- **深度贴水**（年化<-5%）：期货大幅低于现货，反映市场悲观情绪，可能预示短期反弹或中性对冲需求强",
+                "- **轻度贴水**（年化-2%~-5%）：正常对冲成本范围，中性偏谨慎情绪",
+                "- **平水附近**（年化-2%~+2%）：市场情绪均衡，无明确方向",
+                "- **升水**（年化>+2%）：期货高于现货，反映乐观情绪或分红预期",
+                "- **跨品种比较**：IM贴水>IC>IF时，小盘股悲观情绪更重；反之则大盘股承压"
+            ])
+        
+        # ETF IV数据（新增）
+        if self.etf_iv:
+            lines.extend(["", "## 指数ETF期权隐含波动率 (IV)"])
+            # etf_iv 是字典格式: {'50ETF': 15.21, '300ETF': 15.63, ...}
+            for etf_name, iv_val in self.etf_iv.items():
+                lines.append(f"- **{etf_name}**: IV={iv_val:.2f}%")
+            
+            # 添加IV分析提示
+            lines.extend([
+                "",
+                "### 隐含波动率(IV)分析提示",
+                "- **IV<15%**：低波动环境，适合卖方策略，但需警惕波动率突变风险",
+                "- **IV 15%-25%**：正常波动区间，市场情绪平稳",
+                "- **IV>25%**：高波动环境，恐慌情绪升温，或存在事件驱动机会",
+                "- **期限结构**：近月IV>远月为Backwardation（恐慌）；近月<远月为Contango（平稳）",
+                "- **Skew偏度**：虚值Put IV>虚值Call IV时，市场担忧下跌风险（保护性需求）"
+            ])
         
         return "\n".join(lines)
 
@@ -268,6 +336,12 @@ class MarketDataAnalyzer:
         
         # 3. 获取板块涨跌榜
         self._get_sector_rankings(overview)
+        
+        # 4. 获取股指期货贴水数据（新增）
+        self._get_futures_basis_data(overview)
+        
+        # 5. 获取ETF期权IV数据（新增）
+        self._get_etf_iv_data(overview)
         
         return overview
     
@@ -404,6 +478,98 @@ class MarketDataAnalyzer:
                     
         except Exception as e:
             logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
+    
+    def _get_futures_basis_data(self, overview: MarketOverview) -> None:
+        """
+        获取股指期货贴水/升水数据（新增）
+        
+        Args:
+            overview: 市场概览数据对象（会被修改）
+        """
+        try:
+            logger.info("[大盘] 获取股指期货贴水/升水数据...")
+            
+            df, source_name = self._get_data_with_retry(
+                'get_futures_basis',
+                "期货贴水",
+                attempts=2
+            )
+            
+            if df is not None and not df.empty:
+                # 转换为字典列表
+                overview.futures_basis = df.to_dict('records')
+                logger.info(
+                    f"[大盘] 从 {source_name} 获取期货贴水: {len(overview.futures_basis)} 条"
+                )
+                
+        except Exception as e:
+            logger.warning(f"[大盘] 获取期货贴水数据失败: {e}")
+            overview.futures_basis = []
+    
+    def _get_etf_iv_data(self, overview: MarketOverview) -> None:
+        """
+        获取ETF期权隐含波动率数据（新增）
+        
+        通过 akshare 的 option_risk_indicator_sse 一次性获取所有期权风险指标，
+        然后筛选主要ETF的IV数据：
+        - 50ETF (510050)
+        - 300ETF (510300)
+        - 500ETF (510500)
+        - 创业板ETF (159915)
+        
+        Args:
+            overview: 市场概览数据对象（会被修改）
+        """
+        # 主要ETF代码前缀映射
+        etf_map = {
+            '510050': '50ETF',
+            '510300': '300ETF',
+            '510500': '500ETF',
+            '159915': '创业板ETF',
+        }
+        
+        etf_iv_data = {}
+        
+        try:
+            logger.info("[大盘] 获取ETF期权IV数据...")
+            
+            # 直接使用第一个可用的 fetcher 获取期权风险指标
+            for fetcher in self._manager._fetchers:
+                try:
+                    # 只尝试 akshare，因为 efinance 不支持期权
+                    if hasattr(fetcher, '_ak'):
+                        import akshare as ak
+                        df_risk = ak.option_risk_indicator_sse()
+                        
+                        if df_risk is not None and not df_risk.empty:
+                            # 标准化列名
+                            if 'IMPLC_VOLATLTY' in df_risk.columns:
+                                df_risk = df_risk.rename(columns={'IMPLC_VOLATLTY': 'iv'})
+                            if 'CONTRACT_ID' in df_risk.columns:
+                                df_risk = df_risk.rename(columns={'CONTRACT_ID': 'code'})
+                            
+                            # 为每个ETF计算平均IV
+                            for etf_code, etf_name in etf_map.items():
+                                etf_options = df_risk[df_risk['code'].astype(str).str.startswith(etf_code)]
+                                if not etf_options.empty and 'iv' in etf_options.columns:
+                                    # 过滤有效IV值
+                                    valid_iv = etf_options['iv'].dropna()
+                                    if not valid_iv.empty:
+                                        avg_iv = valid_iv.mean()
+                                        etf_iv_data[etf_name] = round(float(avg_iv) * 100, 2)
+                            
+                            logger.info(f"[大盘] 从 akshare 获取ETF IV: {list(etf_iv_data.keys())}")
+                            break
+                            
+                except Exception as e:
+                    logger.debug(f"[{fetcher.name}] 获取期权IV失败: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.warning(f"[大盘] 获取ETF IV数据失败: {e}")
+        
+        overview.etf_iv = etf_iv_data
+        logger.info(f"[大盘] ETF IV 数据: {etf_iv_data}")
 
 
 # =============================================================================
@@ -559,10 +725,13 @@ def analyze_market_for_llm() -> str:
 2. **指数点评**: 主要指数走势特点分析
 3. **资金动向**: 成交额和资金流向解读
 4. **热点解读**: 领涨领跌板块背后的逻辑
-5. **后市展望**: 结合当前走势，给出明日市场预判
-6. **风险提示**: 需要关注的风险点
+5. **衍生品情绪**: 
+   - 股指期货贴水/升水分析：基差水平反映的市场情绪（悲观/乐观/中性），对冲需求强度，跨品种比较（IF/IC/IM/IH差异）
+   - ETF期权IV分析：波动率水平（高/低/正常），市场情绪（恐慌/平稳），期限结构暗示的预期
+6. **后市展望**: 结合现货走势+衍生品情绪，给出明日市场预判
+7. **风险提示**: 需要关注的风险点（波动率突变、贴水扩大、风格切换等）
 
-请用专业的分析师视角给出见解。
+请用专业的分析师视角给出见解，特别关注衍生品数据与现货走势的背离/印证关系。
 """
         return prompt
         

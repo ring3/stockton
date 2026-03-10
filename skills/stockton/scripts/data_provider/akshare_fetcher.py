@@ -493,6 +493,273 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取板块排行失败: {e}")
             return pd.DataFrame()
 
+    # ========== 期权数据接口实现 ==========
+
+    def _get_option_chain(self, underlying_code: str, expiry_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        获取期权链数据
+        
+        使用 akshare 接口获取期权风险指标和行情
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取 {underlying_code} 期权链...")
+            
+            # 获取期权风险指标（含 IV 和 Greek）
+            df_risk = self._ak.option_risk_indicator_sse()
+            
+            if df_risk is None or df_risk.empty:
+                logger.warning(f"[Akshare] {underlying_code} 期权风险指标为空，尝试使用爬虫...")
+                return self._get_option_chain_fallback(underlying_code, expiry_date)
+            
+            # 标准化列名
+            column_mapping = {
+                'CONTRACT_ID': 'code',
+                'CONTRACT_SYMBOL': 'name',
+                'IMPLC_VOLATLTY': 'iv',
+                'DELTA_VALUE': 'delta',
+                'GAMMA_VALUE': 'gamma',
+                'THETA_VALUE': 'theta',
+                'VEGA_VALUE': 'vega',
+                'RHO_VALUE': 'rho',
+            }
+            
+            for old, new in column_mapping.items():
+                if old in df_risk.columns:
+                    df_risk = df_risk.rename(columns={old: new})
+            
+            # 筛选指定标的的期权
+            if 'code' in df_risk.columns:
+                df_risk = df_risk[df_risk['code'].astype(str).str.startswith(underlying_code)]
+            
+            # 添加 underlying 列
+            df_risk['underlying'] = underlying_code
+            
+            # 从期权名称解析类型（认购/认沽）
+            def parse_option_type(name):
+                if pd.isna(name):
+                    return 'unknown'
+                name = str(name)
+                if '购' in name:
+                    return 'call'
+                elif '沽' in name:
+                    return 'put'
+                return 'unknown'
+            
+            df_risk['type'] = df_risk['name'].apply(parse_option_type)
+            
+            # 从 code 解析行权价（如 510050C2503A02100 -> 2.100）
+            def parse_strike(code):
+                if pd.isna(code):
+                    return None
+                code = str(code)
+                # 尝试提取行权价部分
+                try:
+                    # 格式: 510050C2503A02100 -> 2.100
+                    if len(code) >= 15:
+                        strike_str = code[12:17]  # 取 02100 部分
+                        return float(strike_str) / 10000
+                except:
+                    pass
+                return None
+            
+            df_risk['strike'] = df_risk['code'].apply(parse_strike)
+            
+            # 获取期权行情数据（补充成交量、持仓量）
+            try:
+                df_quote = self._ak.option_current_em()
+                if df_quote is not None and not df_quote.empty:
+                    # 合并数据
+                    if '代码' in df_quote.columns and 'code' in df_risk.columns:
+                        df_quote = df_quote.rename(columns={'代码': 'code'})
+                        df_risk = df_risk.merge(
+                            df_quote[['code', '成交量', '持仓量']], 
+                            on='code', 
+                            how='left'
+                        )
+                        df_risk = df_risk.rename(columns={'成交量': 'volume', '持仓量': 'open_interest'})
+            except Exception as e:
+                logger.debug(f"[Akshare] 获取期权行情失败: {e}")
+            
+            logger.info(f"[Akshare] 成功获取 {len(df_risk)} 条期权数据")
+            return df_risk
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取期权链失败: {e}，尝试使用爬虫...")
+            return self._get_option_chain_fallback(underlying_code, expiry_date)
+
+    def _get_option_chain_fallback(self, underlying_code: str, expiry_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        使用爬虫获取期权链（当 akshare 失败时）
+        """
+        try:
+            logger.info(f"[Akshare] 使用爬虫获取 {underlying_code} 期权链...")
+            
+            # 动态导入爬虫模块
+            import sys
+            from pathlib import Path
+            scripts_path = Path(__file__).parent.parent
+            if str(scripts_path) not in sys.path:
+                sys.path.insert(0, str(scripts_path))
+            
+            from option_crawler import EastMoneyOptionCrawler
+            crawler = EastMoneyOptionCrawler()
+            
+            return crawler.get_option_chain(underlying_code)
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 爬虫获取期权链也失败: {e}")
+            return pd.DataFrame()
+
+    def _get_option_iv(self, underlying_code: str) -> Optional[float]:
+        """
+        获取期权隐含波动率（加权平均）
+        """
+        try:
+            df = self._get_option_chain(underlying_code)
+            if df is None or df.empty:
+                return None
+            
+            # 筛选有 IV 和成交量的数据
+            df = df.dropna(subset=['iv', 'volume'])
+            if df.empty:
+                return None
+            
+            # 按成交量加权计算平均 IV
+            weighted_iv = (df['iv'] * df['volume']).sum() / df['volume'].sum()
+            return float(weighted_iv)
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 计算期权IV失败: {e}")
+            return None
+
+    def _get_option_cp_ratio(self, underlying_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取认购认沽比
+        """
+        try:
+            df = self._get_option_chain(underlying_code)
+            if df is None or df.empty:
+                return None
+            
+            # 分离认购和认沽
+            calls = df[df['type'] == 'call']
+            puts = df[df['type'] == 'put']
+            
+            call_volume = calls['volume'].sum() if 'volume' in calls.columns else 0
+            put_volume = puts['volume'].sum() if 'volume' in puts.columns else 0
+            call_oi = calls['open_interest'].sum() if 'open_interest' in calls.columns else 0
+            put_oi = puts['open_interest'].sum() if 'open_interest' in puts.columns else 0
+            
+            return {
+                'underlying': underlying_code,
+                'volume_cp_ratio': call_volume / put_volume if put_volume > 0 else 0,
+                'oi_cp_ratio': call_oi / put_oi if put_oi > 0 else 0,
+                'call_volume': int(call_volume),
+                'put_volume': int(put_volume),
+                'call_oi': int(call_oi),
+                'put_oi': int(put_oi),
+                'timestamp': datetime.now().isoformat(),
+            }
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 计算CP Ratio失败: {e}")
+            return None
+
+    def _get_futures_basis(self) -> pd.DataFrame:
+        """
+        获取股指期货贴水/升水数据
+        
+        支持的股指期货：
+        - IF: 沪深300期货 -> 对应指数 000300
+        - IC: 中证500期货 -> 对应指数 000905  
+        - IM: 中证1000期货 -> 对应指数 000852
+        - IH: 上证50期货 -> 对应指数 000016
+        """
+        try:
+            self._random_sleep()
+            logger.info("[Akshare] 获取股指期货贴水数据...")
+            
+            # 股指期货配置
+            futures_config = [
+                {'futures_code': 'IF0', 'index_code': '000300', 'name': '沪深300'},
+                {'futures_code': 'IC0', 'index_code': '000905', 'name': '中证500'},
+                {'futures_code': 'IM0', 'index_code': '000852', 'name': '中证1000'},
+                {'futures_code': 'IH0', 'index_code': '000016', 'name': '上证50'},
+            ]
+            
+            results = []
+            
+            for config in futures_config:
+                try:
+                    # 获取期货主力合约最新价格
+                    df_futures = self._ak.futures_main_sina(symbol=config['futures_code'])
+                    if df_futures is None or df_futures.empty:
+                        continue
+                    
+                    futures_price = df_futures['收盘价'].iloc[-1]
+                    
+                    # 获取对应现货指数最新价格
+                    # 使用 akshare 的指数行情接口
+                    if config['index_code'].startswith('000'):
+                        # 上海指数
+                        df_index = self._ak.stock_zh_index_spot_sina()
+                        index_row = df_index[df_index['代码'] == f"sh{config['index_code']}"]
+                        if index_row.empty:
+                            index_row = df_index[df_index['代码'] == config['index_code']]
+                    else:
+                        df_index = self._ak.stock_zh_index_spot_sina()
+                        index_row = df_index[df_index['代码'] == config['index_code']]
+                    
+                    if index_row.empty:
+                        continue
+                    
+                    index_price = float(index_row['最新价'].iloc[0])
+                    
+                    # 计算贴水/升水
+                    basis = futures_price - index_price
+                    basis_rate = (basis / index_price) * 100 if index_price > 0 else 0
+                    
+                    # 估算距离到期日天数（股指期货通常是每月第三个周五到期）
+                    from datetime import datetime, timedelta
+                    today = datetime.now()
+                    # 简单估算：假设距离下月到期日约30天
+                    days_to_expiry = 30 - today.day
+                    if days_to_expiry < 0:
+                        days_to_expiry = 30
+                    
+                    # 计算年化贴水率
+                    annualized_rate = basis_rate * (365 / days_to_expiry) if days_to_expiry > 0 else 0
+                    
+                    results.append({
+                        'index_code': config['index_code'],
+                        'index_name': config['name'],
+                        'index_price': round(index_price, 2),
+                        'futures_code': config['futures_code'],
+                        'futures_name': f"{config['name']}期货",
+                        'futures_price': round(futures_price, 2),
+                        'basis': round(basis, 2),
+                        'basis_rate': round(basis_rate, 4),
+                        'annualized_rate': round(annualized_rate, 4),
+                        'days_to_expiry': days_to_expiry,
+                        'timestamp': datetime.now().isoformat(),
+                    })
+                    
+                except Exception as e:
+                    logger.debug(f"[Akshare] 获取 {config['name']} 贴水数据失败: {e}")
+                    continue
+            
+            if results:
+                df = pd.DataFrame(results)
+                logger.info(f"[Akshare] 成功获取 {len(df)} 条期货贴水数据")
+                return df
+            else:
+                return pd.DataFrame()
+        
+        except Exception as e:
+            logger.error(f"[Akshare] 获取期货贴水数据失败: {e}")
+            return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码

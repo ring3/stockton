@@ -17,7 +17,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 
 import pandas as pd
 import numpy as np
@@ -120,6 +120,92 @@ class BaseFetcher(ABC):
             筹码分布字典，包含字段：
             - code, date, profit_ratio, avg_cost, concentration_90, concentration_70
             获取失败返回 None
+        """
+        pass
+
+    # ========== 期权数据接口 ==========
+
+    @abstractmethod
+    def _get_option_chain(self, underlying_code: str, expiry_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        获取期权链数据
+        
+        Args:
+            underlying_code: 标的代码，如 '510050' (50ETF)
+            expiry_date: 到期日（可选，格式 YYYY-MM-DD），默认返回全部
+        
+        Returns:
+            DataFrame 包含列：
+            - code: 期权代码
+            - name: 期权名称
+            - underlying: 标的代码
+            - type: 'call' 或 'put'
+            - strike: 行权价
+            - expiry: 到期日
+            - price: 最新价
+            - change_pct: 涨跌幅
+            - volume: 成交量
+            - open_interest: 持仓量
+            - iv: 隐含波动率
+            - delta, gamma, theta, vega, rho: 希腊字母
+            获取失败返回空 DataFrame
+        """
+        pass
+
+    @abstractmethod
+    def _get_option_iv(self, underlying_code: str) -> Optional[float]:
+        """
+        获取期权隐含波动率（加权平均）
+        
+        Args:
+            underlying_code: 标的代码
+        
+        Returns:
+            加权平均 IV，获取失败返回 None
+        """
+        pass
+
+    @abstractmethod
+    def _get_option_cp_ratio(self, underlying_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取认购认沽比 (CP Ratio)
+        
+        Args:
+            underlying_code: 标的代码
+        
+        Returns:
+            {
+                'volume_cp_ratio': float,  # 成交量 CP 比
+                'oi_cp_ratio': float,      # 持仓量 CP 比
+                'call_volume': int,
+                'put_volume': int,
+                'call_oi': int,
+                'put_oi': int,
+            }
+            获取失败返回 None
+        """
+        pass
+
+    # ========== 期货贴水数据接口 ==========
+
+    @abstractmethod
+    def _get_futures_basis(self) -> pd.DataFrame:
+        """
+        获取股指期货贴水/升水数据
+        
+        Returns:
+            DataFrame 包含列：
+            - index_code: 指数代码（如 '000300' 沪深300）
+            - index_name: 指数名称
+            - index_price: 现货指数价格
+            - futures_code: 期货代码（如 'IF0'）
+            - futures_name: 期货名称
+            - futures_price: 期货价格
+            - basis: 基差（期货 - 现货）
+            - basis_rate: 贴水率/升水率（%）
+            - annualized_rate: 年化贴水率（%）
+            - days_to_expiry: 距离到期日天数
+            获取失败返回空 DataFrame
         """
         pass
 
@@ -542,5 +628,131 @@ class DataFetcherManager:
                 continue
         
         error_summary = "所有数据源获取板块排行失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    # ========== 期权数据获取方法 ==========
+
+    def get_option_chain(self, underlying_code: str, expiry_date: Optional[str] = None) -> Tuple[pd.DataFrame, str]:
+        """
+        获取期权链数据（自动切换数据源）
+        
+        Args:
+            underlying_code: 标的代码，如 '510050'
+            expiry_date: 到期日（可选）
+        
+        Returns:
+            Tuple[DataFrame, str]: (期权链数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取期权链 {underlying_code}...")
+                df = fetcher._get_option_chain(underlying_code, expiry_date)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取期权链")
+                    return df, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = f"所有数据源获取期权链 {underlying_code} 失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    def get_option_iv(self, underlying_code: str) -> Tuple[Optional[float], str]:
+        """
+        获取期权隐含波动率（自动切换数据源）
+        
+        Args:
+            underlying_code: 标的代码
+        
+        Returns:
+            Tuple[Optional[float], str]: (IV值, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取期权IV {underlying_code}...")
+                iv = fetcher._get_option_iv(underlying_code)
+                
+                if iv is not None:
+                    logger.info(f"[{fetcher.name}] 成功获取期权IV: {iv}")
+                    return iv, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = f"所有数据源获取期权IV {underlying_code} 失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    def get_option_cp_ratio(self, underlying_code: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        """
+        获取认购认沽比（自动切换数据源）
+        
+        Args:
+            underlying_code: 标的代码
+        
+        Returns:
+            Tuple[Dict, str]: (CP Ratio数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取CP Ratio {underlying_code}...")
+                cp_data = fetcher._get_option_cp_ratio(underlying_code)
+                
+                if cp_data is not None:
+                    logger.info(f"[{fetcher.name}] 成功获取CP Ratio")
+                    return cp_data, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = f"所有数据源获取CP Ratio {underlying_code} 失败:\n" + "\n".join(errors)
+        logger.error(error_summary)
+        raise DataFetchError(error_summary)
+
+    # ========== 期货贴水数据获取方法 ==========
+
+    def get_futures_basis(self) -> Tuple[pd.DataFrame, str]:
+        """
+        获取股指期货贴水/升水数据（自动切换数据源）
+        
+        Returns:
+            Tuple[DataFrame, str]: (贴水数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取期货贴水数据...")
+                df = fetcher._get_futures_basis()
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取期货贴水数据")
+                    return df, fetcher.name
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        error_summary = "所有数据源获取期货贴水数据失败:\n" + "\n".join(errors)
         logger.error(error_summary)
         raise DataFetchError(error_summary)

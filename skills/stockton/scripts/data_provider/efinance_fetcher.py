@@ -458,6 +458,46 @@ class EfinanceFetcher(BaseFetcher):
         logger.warning("[Efinance] 不支持行业板块排行，请使用 AkshareFetcher")
         return pd.DataFrame()
 
+    # ========== 期权数据接口（基础实现） ==========
+    
+    def _get_option_chain(self, underlying_code: str, expiry_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        获取期权链数据
+        
+        注意：efinance 不支持期权数据，返回空 DataFrame
+        使用 akshare 或爬虫作为备用
+        """
+        logger.warning("[Efinance] 不支持期权数据，请使用 AkshareFetcher")
+        return pd.DataFrame()
+    
+    def _get_option_iv(self, underlying_code: str) -> Optional[float]:
+        """
+        获取期权隐含波动率
+        
+        注意：efinance 不支持期权数据，返回 None
+        """
+        logger.warning("[Efinance] 不支持期权数据，请使用 AkshareFetcher")
+        return None
+    
+    def _get_option_cp_ratio(self, underlying_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取认购认沽比
+        
+        注意：efinance 不支持期权数据，返回 None
+        """
+        logger.warning("[Efinance] 不支持期权数据，请使用 AkshareFetcher")
+        return None
+    
+    def _get_futures_basis(self) -> pd.DataFrame:
+        """
+        获取股指期货贴水/升水数据
+        
+        注意：efinance 不支持期货数据，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持期货数据，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码
