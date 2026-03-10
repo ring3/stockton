@@ -302,7 +302,7 @@ class AkshareFetcher(BaseFetcher):
 
         return df
 
-    def get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    def _get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         获取筹码分布数据
         
@@ -345,7 +345,7 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取 {stock_code} 筹码分布失败: {e}")
             return None
 
-    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    def _get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         获取实时行情数据
         

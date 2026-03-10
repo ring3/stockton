@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # 标准化列名定义
 STANDARD_COLUMNS = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
 
+# 额外数据键名
+REALTIME_QUOTE_KEY = '_realtime_quote'
+CHIP_DISTRIBUTION_KEY = '_chip_distribution'
+
 
 class DataFetchError(Exception):
     """数据获取异常基类"""
@@ -86,6 +90,39 @@ class BaseFetcher(ABC):
         """
         pass
 
+    @abstractmethod
+    def _get_realtime_quote(self, stock_code: str) -> Optional[dict]:
+        """
+        获取实时行情数据（子类必须实现）
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情字典，包含字段：
+            - code, name, price, change_pct, change_amount
+            - volume, amount, turnover_rate, volume_ratio, amplitude
+            - high, low, open_price
+            - pe_ratio, pb_ratio, total_mv, circ_mv
+            获取失败返回 None
+        """
+        pass
+
+    @abstractmethod
+    def _get_chip_distribution(self, stock_code: str) -> Optional[dict]:
+        """
+        获取筹码分布数据（子类必须实现）
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            筹码分布字典，包含字段：
+            - code, date, profit_ratio, avg_cost, concentration_90, concentration_70
+            获取失败返回 None
+        """
+        pass
+
     def get_daily_data(
         self,
         stock_code: str,
@@ -132,11 +169,26 @@ class BaseFetcher(ABC):
             # Step 2: 标准化列名
             df = self._normalize_data(raw_df, stock_code)
 
-            # Step 3: 数据清洗
+            # Step 3: 数据清洗（保留 attrs）
             df = self._clean_data(df)
 
-            # Step 4: 计算技术指标
+            # Step 4: 计算技术指标（保留 attrs）
             df = self._calculate_indicators(df)
+
+            # Step 5: 获取实时行情和筹码分布（存储在 attrs 中）
+            try:
+                realtime_quote = self._get_realtime_quote(stock_code)
+                if realtime_quote:
+                    df.attrs[REALTIME_QUOTE_KEY] = realtime_quote
+            except Exception as e:
+                logger.debug(f"[{self.name}] 获取实时行情失败: {e}")
+
+            try:
+                chip_distribution = self._get_chip_distribution(stock_code)
+                if chip_distribution:
+                    df.attrs[CHIP_DISTRIBUTION_KEY] = chip_distribution
+            except Exception as e:
+                logger.debug(f"[{self.name}] 获取筹码分布失败: {e}")
 
             logger.info(f"[{self.name}] {stock_code} 获取成功，共 {len(df)} 条数据")
             return df
@@ -155,7 +207,10 @@ class BaseFetcher(ABC):
         3. 去除空值行
         4. 按日期排序
         """
+        # 保存 attrs（如果有）
+        attrs = df.attrs if hasattr(df, 'attrs') else {}
         df = df.copy()
+        df.attrs.update(attrs)
 
         # 确保日期列为 datetime 类型，然后转为字符串
         if 'date' in df.columns:
@@ -185,7 +240,10 @@ class BaseFetcher(ABC):
         - MA5, MA10, MA20: 移动平均线
         - Volume_Ratio: 量比（今日成交量 / 5日平均成交量）
         """
+        # 保存 attrs（如果有）
+        attrs = df.attrs if hasattr(df, 'attrs') else {}
         df = df.copy()
+        df.attrs.update(attrs)
 
         # 移动平均线
         df['ma5'] = df['close'].rolling(window=5, min_periods=1).mean()

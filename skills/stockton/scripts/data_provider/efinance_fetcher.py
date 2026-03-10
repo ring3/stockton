@@ -232,7 +232,7 @@ class EfinanceFetcher(BaseFetcher):
 
         return df
 
-    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    def _get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         获取实时行情数据
 
@@ -322,7 +322,7 @@ class EfinanceFetcher(BaseFetcher):
             logger.error(f"[Efinance] 获取 {stock_code} 实时行情失败: {e}")
             return None
 
-    def get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
+    def _get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         获取筹码分布数据
         
