@@ -277,18 +277,26 @@ class EfinanceFetcher(BaseFetcher):
                 except:
                     return default
 
-            # 获取列名
-            name_col = '股票名称' if '股票名称' in df.columns else 'name'
-            price_col = '最新价' if '最新价' in df.columns else 'price'
-            pct_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
-            chg_col = '涨跌额' if '涨跌额' in df.columns else 'change'
-            vol_col = '成交量' if '成交量' in df.columns else 'volume'
-            amt_col = '成交额' if '成交额' in df.columns else 'amount'
-            turn_col = '换手率' if '换手率' in df.columns else 'turnover_rate'
-            amp_col = '振幅' if '振幅' in df.columns else 'amplitude'
-            high_col = '最高' if '最高' in df.columns else 'high'
-            low_col = '最低' if '最低' in df.columns else 'low'
-            open_col = '开盘' if '开盘' in df.columns else 'open'
+            # 获取列名（处理中英文列名）
+            def get_col(cn_name, en_name):
+                return cn_name if cn_name in df.columns else en_name
+            
+            name_col = get_col('股票名称', 'name')
+            price_col = get_col('最新价', 'price')
+            pct_col = get_col('涨跌幅', 'pct_chg')
+            chg_col = get_col('涨跌额', 'change')
+            vol_col = get_col('成交量', 'volume')
+            amt_col = get_col('成交额', 'amount')
+            turn_col = get_col('换手率', 'turnover_rate')
+            vr_col = get_col('量比', 'volume_ratio')
+            amp_col = get_col('振幅', 'amplitude')
+            high_col = get_col('最高', 'high')
+            low_col = get_col('最低', 'low')
+            open_col = get_col('开盘', 'open')
+            pe_col = get_col('市盈率-动态', 'pe_ratio')
+            pb_col = get_col('市净率', 'pb_ratio')
+            tmv_col = get_col('总市值', 'total_mv')
+            cmv_col = get_col('流通市值', 'circ_mv')
 
             return {
                 'code': stock_code,
@@ -299,14 +307,68 @@ class EfinanceFetcher(BaseFetcher):
                 'volume': safe_float(row.get(vol_col)),
                 'amount': safe_float(row.get(amt_col)),
                 'turnover_rate': safe_float(row.get(turn_col)),
+                'volume_ratio': safe_float(row.get(vr_col)),
                 'amplitude': safe_float(row.get(amp_col)),
                 'high': safe_float(row.get(high_col)),
                 'low': safe_float(row.get(low_col)),
                 'open_price': safe_float(row.get(open_col)),
+                'pe_ratio': safe_float(row.get(pe_col)),
+                'pb_ratio': safe_float(row.get(pb_col)),
+                'total_mv': safe_float(row.get(tmv_col)),
+                'circ_mv': safe_float(row.get(cmv_col)),
             }
 
         except Exception as e:
             logger.error(f"[Efinance] 获取 {stock_code} 实时行情失败: {e}")
+            return None
+
+    def get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取筹码分布数据
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            筹码分布数据字典，获取失败返回 None
+        """
+        try:
+            import efinance as ef
+            
+            self._enforce_rate_limit()
+            
+            logger.info(f"[Efinance] 获取 {stock_code} 筹码分布...")
+            
+            # efinance 通过 stock.get_quote_history 获取筹码分布
+            df = ef.stock.get_quote_history(stock_code, klt=101)
+            
+            if df is None or df.empty:
+                logger.warning(f"[Efinance] {stock_code} 返回空数据")
+                return None
+            
+            # 取最新一天的数据
+            latest = df.iloc[-1]
+            
+            # 安全获取字段
+            def safe_float(val, default=0.0):
+                try:
+                    if pd.isna(val):
+                        return default
+                    return float(val)
+                except:
+                    return default
+            
+            return {
+                'code': stock_code,
+                'date': str(latest.get('日期', '')),
+                'profit_ratio': safe_float(latest.get('获利比例', 0)),
+                'avg_cost': safe_float(latest.get('平均成本', 0)),
+                'concentration_90': safe_float(latest.get('90%集中度', 0)),
+                'concentration_70': safe_float(latest.get('70%集中度', 0)),
+            }
+            
+        except Exception as e:
+            logger.error(f"[Efinance] 获取 {stock_code} 筹码分布失败: {e}")
             return None
 
 

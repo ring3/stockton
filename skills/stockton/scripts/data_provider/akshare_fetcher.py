@@ -302,6 +302,49 @@ class AkshareFetcher(BaseFetcher):
 
         return df
 
+    def get_chip_distribution(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取筹码分布数据
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            筹码分布数据字典，获取失败返回 None
+        """
+        try:
+            self._random_sleep()
+            
+            logger.info(f"[Akshare] 获取 {stock_code} 筹码分布...")
+            
+            # 使用 akshare 的筹码分布接口
+            df = self._ak.stock_cyq_em(symbol=stock_code)
+            
+            if df is None or df.empty:
+                logger.warning(f"[Akshare] {stock_code} 返回空数据")
+                return None
+            
+            # 取最新一天的数据
+            latest = df.iloc[-1]
+            
+            # 处理获利比例（可能是百分比字符串）
+            profit_ratio = latest.get('获利比例', 0)
+            if isinstance(profit_ratio, str) and '%' in profit_ratio:
+                profit_ratio = float(profit_ratio.replace('%', '')) / 100
+            
+            return {
+                'code': stock_code,
+                'date': str(latest.get('日期', '')),
+                'profit_ratio': float(profit_ratio) if profit_ratio else 0.0,
+                'avg_cost': float(latest.get('平均成本', 0)) if pd.notna(latest.get('平均成本')) else 0.0,
+                'concentration_90': float(latest.get('90%集中度', 0)) if pd.notna(latest.get('90%集中度')) else 0.0,
+                'concentration_70': float(latest.get('70%集中度', 0)) if pd.notna(latest.get('70%集中度')) else 0.0,
+            }
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取 {stock_code} 筹码分布失败: {e}")
+            return None
+
 
 if __name__ == "__main__":
     # 测试代码

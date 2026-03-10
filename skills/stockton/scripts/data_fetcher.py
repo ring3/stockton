@@ -83,6 +83,7 @@ class StockDataResult:
     error_message: str = ""
     fetch_time: str = ""
     realtime_quote: Optional['RealtimeQuote'] = None  # 可选的实时行情
+    chip_distribution: Optional[Dict[str, Any]] = None  # 筹码分布数据
     
     def to_dict(self) -> Dict[str, Any]:
         result = {
@@ -96,6 +97,8 @@ class StockDataResult:
         }
         if self.realtime_quote:
             result['realtime_quote'] = self.realtime_quote.__dict__
+        if self.chip_distribution:
+            result['chip_distribution'] = self.chip_distribution
         return result
     
     def to_json(self, indent: int = 2) -> str:
@@ -222,16 +225,67 @@ def get_stock_data(
         # 转换为 StockDailyData 列表
         daily_data = _df_to_daily_data_list(df, stock_code, source_name)
         
-        # 获取股票名称（从 efinance 实时行情）
+        # 获取实时行情（包含名称、换手率、市盈率等）
         name = f"股票{stock_code}"
+        realtime_quote = None
+        realtime_dict = None
         try:
             if EfinanceFetcher:
                 ef_fetcher = EfinanceFetcher()
                 rt = ef_fetcher.get_realtime_quote(stock_code)
-                if rt and rt.get('name'):
-                    name = rt['name']
+                if rt:
+                    if rt.get('name'):
+                        name = rt['name']
+                    # 保存实时行情字典用于数据库存储
+                    realtime_dict = rt
+                    # 保存完整的实时行情对象
+                    realtime_quote = RealtimeQuote(
+                        code=stock_code,
+                        name=name,
+                        price=rt.get('price', 0.0),
+                        change_pct=rt.get('change_pct', 0.0),
+                        change_amount=rt.get('change_amount', 0.0),
+                        volume=rt.get('volume', 0.0),
+                        amount=rt.get('amount', 0.0),
+                        turnover_rate=rt.get('turnover_rate', 0.0),
+                        volume_ratio=rt.get('volume_ratio', 0.0),
+                        amplitude=rt.get('amplitude', 0.0),
+                        high=rt.get('high', 0.0),
+                        low=rt.get('low', 0.0),
+                        open_price=rt.get('open', 0.0),
+                        pe_ratio=rt.get('pe_ratio', 0.0),
+                        pb_ratio=rt.get('pb_ratio', 0.0),
+                        total_mv=rt.get('total_mv', 0.0),
+                        circ_mv=rt.get('circ_mv', 0.0),
+                    )
         except Exception:
             pass
+        
+        # 获取筹码分布数据
+        chip_distribution = None
+        try:
+            # 优先使用 efinance
+            if EfinanceFetcher:
+                ef_fetcher = EfinanceFetcher()
+                chip_distribution = ef_fetcher.get_chip_distribution(stock_code)
+            # 备用 akshare
+            if chip_distribution is None and manager._fetchers:
+                for fetcher in manager._fetchers:
+                    if hasattr(fetcher, 'get_chip_distribution'):
+                        chip_distribution = fetcher.get_chip_distribution(stock_code)
+                        if chip_distribution:
+                            break
+        except Exception:
+            pass
+        
+        # 保存到数据库（包含实时行情和筹码分布）
+        try:
+            from scripts.storage import get_db
+            db = get_db()
+            db.save_daily_data(df, stock_code, source_name, name, realtime_dict, chip_distribution)
+            logger.info(f"[{stock_code}] 数据已缓存到数据库")
+        except Exception as e:
+            logger.debug(f"数据库缓存保存失败: {e}")
         
         result = StockDataResult(
             success=True,
@@ -240,6 +294,8 @@ def get_stock_data(
             daily_data=daily_data,
             data_source=source_name,
             fetch_time=start_time,
+            realtime_quote=realtime_quote,
+            chip_distribution=chip_distribution,
         )
         
         return result.to_dict()

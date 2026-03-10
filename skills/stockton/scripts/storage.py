@@ -24,6 +24,7 @@ Stockton Skill - 数据存储层
         db.save_daily_data(df, '600519', 'AkshareFetcher')
 """
 
+import json
 import logging
 import os
 from datetime import datetime, date, timedelta
@@ -114,6 +115,8 @@ class DatabaseManager:
                     ma60 REAL,
                     volume_ratio REAL,
                     data_source TEXT,
+                    realtime_quote TEXT,
+                    chip_distribution TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(code, date)
@@ -261,7 +264,9 @@ class DatabaseManager:
         df: pd.DataFrame, 
         code: str, 
         data_source: str = "Unknown",
-        name: str = ""
+        name: str = "",
+        realtime_quote: Optional[Dict[str, Any]] = None,
+        chip_distribution: Optional[Dict[str, Any]] = None
     ) -> int:
         """
         保存日线数据到数据库
@@ -275,6 +280,8 @@ class DatabaseManager:
             code: 股票代码
             data_source: 数据来源名称
             name: 股票名称
+            realtime_quote: 实时行情数据字典（可选）
+            chip_distribution: 筹码分布数据字典（可选）
             
         Returns:
             新增/更新的记录数
@@ -311,13 +318,23 @@ class DatabaseManager:
                     except:
                         return default
                 
+                # 准备实时行情JSON（仅最新日期）
+                rt_json = None
+                if realtime_quote and date_str == df['date'].max():
+                    rt_json = json.dumps(realtime_quote, ensure_ascii=False, default=str)
+                
+                # 准备筹码分布JSON（仅最新日期）
+                chip_json = None
+                if chip_distribution and date_str == df['date'].max():
+                    chip_json = json.dumps(chip_distribution, ensure_ascii=False, default=str)
+                
                 # 使用 INSERT OR REPLACE
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO stock_daily 
                     (code, name, date, open, high, low, close, volume, amount, 
-                     pct_chg, ma5, ma10, ma20, ma60, volume_ratio, data_source, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     pct_chg, ma5, ma10, ma20, ma60, volume_ratio, data_source, realtime_quote, chip_distribution, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     """,
                     (
                         code,
@@ -335,7 +352,9 @@ class DatabaseManager:
                         safe_val('ma20'),
                         safe_val('ma60'),
                         safe_val('volume_ratio'),
-                        data_source
+                        data_source,
+                        rt_json,
+                        chip_json
                     )
                 )
                 saved_count += 1
