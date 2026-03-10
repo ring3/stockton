@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 try:
     from data_fetcher import (
-        AkshareDataSource, 
         get_stock_data,
         get_stock_data_for_llm,
         StockDailyData,
@@ -20,7 +19,7 @@ try:
         ChipDistribution
     )
     print('[OK] Import successful')
-    print(f'[OK] Available classes: AkshareDataSource, StockDailyData, StockDataResult')
+    print(f'[OK] Available classes: StockDailyData, StockDataResult, RealtimeQuote, ChipDistribution')
     print('[OK] Available functions: get_stock_data, get_stock_data_for_llm')
     print('[OK] All checks passed')
 except Exception as e:

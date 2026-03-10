@@ -82,9 +82,10 @@ class StockDataResult:
     data_source: str = ""
     error_message: str = ""
     fetch_time: str = ""
+    realtime_quote: Optional['RealtimeQuote'] = None  # 可选的实时行情
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             'success': self.success,
             'code': self.code,
             'name': self.name,
@@ -93,6 +94,9 @@ class StockDataResult:
             'error_message': self.error_message,
             'fetch_time': self.fetch_time,
         }
+        if self.realtime_quote:
+            result['realtime_quote'] = self.realtime_quote.__dict__
+        return result
     
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False, default=str)
@@ -341,176 +345,6 @@ class ChipDistribution:
         self.avg_cost = kwargs.get('avg_cost', 0.0)
         self.concentration_90 = kwargs.get('concentration_90', 0.0)
         self.concentration_70 = kwargs.get('concentration_70', 0.0)
-
-
-class AkshareDataSource:
-    """
-    Akshare 数据源兼容类
-    
-    此类为旧代码提供向后兼容，内部使用新的 DataFetcherManager
-    """
-    
-    def __init__(self, sleep_min: float = 2.0, sleep_max: float = 5.0):
-        """
-        初始化数据源
-        
-        Args:
-            sleep_min: 最小休眠时间（秒）- 已废弃，仅保留兼容性
-            sleep_max: 最大休眠时间（秒）- 已废弃，仅保留兼容性
-        """
-        self._manager = None
-        self._sleep_min = sleep_min
-        self._sleep_max = sleep_max
-        
-        # 尝试初始化管理器
-        try:
-            from data_provider import DataFetcherManager
-            self._manager = DataFetcherManager()
-        except Exception as e:
-            logger.warning(f"DataFetcherManager 初始化失败: {e}")
-    
-    def get_daily_data(self, stock_code: str, days: int = 60) -> List[StockDailyData]:
-        """
-        获取历史日线数据（兼容旧接口）
-        
-        Args:
-            stock_code: 股票代码
-            days: 获取天数
-            
-        Returns:
-            StockDailyData 列表
-        """
-        if self._manager is None:
-            logger.error("DataFetcherManager 未初始化")
-            return []
-        
-        try:
-            df, source_name = self._manager.get_daily_data(stock_code, days=days)
-            
-            if df is None or df.empty:
-                return []
-            
-            # 转换为 StockDailyData 列表
-            result = []
-            for _, row in df.iterrows():
-                try:
-                    data = StockDailyData(
-                        date=str(row.get('date', '')),
-                        code=stock_code,
-                        open=float(row.get('open', 0)) if pd.notna(row.get('open')) else 0,
-                        high=float(row.get('high', 0)) if pd.notna(row.get('high')) else 0,
-                        low=float(row.get('low', 0)) if pd.notna(row.get('low')) else 0,
-                        close=float(row.get('close', 0)) if pd.notna(row.get('close')) else 0,
-                        volume=float(row.get('volume', 0)) if pd.notna(row.get('volume')) else 0,
-                        amount=float(row.get('amount', 0)) if pd.notna(row.get('amount')) else 0,
-                        pct_chg=float(row.get('pct_chg', 0)) if pd.notna(row.get('pct_chg')) else 0,
-                        ma5=float(row.get('ma5')) if pd.notna(row.get('ma5')) else None,
-                        ma10=float(row.get('ma10')) if pd.notna(row.get('ma10')) else None,
-                        ma20=float(row.get('ma20')) if pd.notna(row.get('ma20')) else None,
-                        ma60=float(row.get('ma60')) if pd.notna(row.get('ma60')) else None,
-                        volume_ratio=float(row.get('volume_ratio')) if pd.notna(row.get('volume_ratio')) else None,
-                        data_source=source_name,
-                    )
-                    result.append(data)
-                except Exception as e:
-                    logger.warning(f"解析行数据失败: {e}")
-                    continue
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"获取 {stock_code} 数据失败: {e}")
-            return []
-    
-    def get_realtime_quote(self, stock_code: str) -> Optional[RealtimeQuote]:
-        """
-        获取实时行情（兼容旧接口）
-        
-        注意: 此方法直接调用 akshare，不经过 DataFetcherManager
-        """
-        try:
-            import akshare as ak
-            import time
-            time.sleep(0.5)  # 简单防封禁
-            
-            # 获取全部 A 股实时行情
-            df = ak.stock_zh_a_spot_em()
-            
-            # 查找指定股票
-            row = df[df['代码'] == stock_code]
-            if row.empty:
-                return None
-            
-            row = row.iloc[0]
-            
-            def safe_float(val, default=0.0):
-                try:
-                    if pd.isna(val):
-                        return default
-                    return float(val)
-                except:
-                    return default
-            
-            return RealtimeQuote(
-                code=stock_code,
-                name=str(row.get('名称', '')),
-                price=safe_float(row.get('最新价')),
-                change_pct=safe_float(row.get('涨跌幅')),
-                change_amount=safe_float(row.get('涨跌额')),
-                volume=safe_float(row.get('成交量')),
-                amount=safe_float(row.get('成交额')),
-                turnover_rate=safe_float(row.get('换手率')),
-                volume_ratio=safe_float(row.get('量比')),
-                amplitude=safe_float(row.get('振幅')),
-                high=safe_float(row.get('最高')),
-                low=safe_float(row.get('最低')),
-                open_price=safe_float(row.get('今开')),
-                pe_ratio=safe_float(row.get('市盈率-动态')),
-                pb_ratio=safe_float(row.get('市净率')),
-                total_mv=safe_float(row.get('总市值')),
-                circ_mv=safe_float(row.get('流通市值')),
-            )
-            
-        except Exception as e:
-            logger.error(f"获取实时行情失败: {e}")
-            return None
-    
-    def get_chip_distribution(self, stock_code: str) -> Optional[ChipDistribution]:
-        """
-        获取筹码分布（兼容旧接口）
-        
-        注意: 此方法直接调用 akshare，不经过 DataFetcherManager
-        """
-        try:
-            import akshare as ak
-            import time
-            time.sleep(0.5)  # 简单防封禁
-            
-            df = ak.stock_cyq_em(symbol=stock_code)
-            
-            if df is None or df.empty:
-                return None
-            
-            # 取最新一天的数据
-            latest = df.iloc[-1]
-            
-            # 处理获利比例
-            profit_ratio = latest.get('获利比例', 0)
-            if isinstance(profit_ratio, str) and '%' in profit_ratio:
-                profit_ratio = float(profit_ratio.replace('%', '')) / 100
-            
-            return ChipDistribution(
-                code=stock_code,
-                date=str(latest.get('日期', '')),
-                profit_ratio=float(profit_ratio) if profit_ratio else 0.0,
-                avg_cost=float(latest.get('平均成本', 0)) if pd.notna(latest.get('平均成本')) else 0.0,
-                concentration_90=float(latest.get('90集中度', 0)) if pd.notna(latest.get('90集中度')) else 0.0,
-                concentration_70=float(latest.get('70集中度', 0)) if pd.notna(latest.get('70集中度')) else 0.0,
-            )
-            
-        except Exception as e:
-            logger.error(f"获取筹码分布失败: {e}")
-            return None
 
 
 # =============================================================================

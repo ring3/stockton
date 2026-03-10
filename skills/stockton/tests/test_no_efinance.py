@@ -35,11 +35,9 @@ print("\n2. 测试从 data_fetcher 导入...")
 try:
     from data_fetcher import (
         get_stock_data, 
-        AkshareDataSource,
         EfinanceFetcher  # 这个应该是从 data_provider 导入的 None
     )
     print(f"   [OK] get_stock_data 导入成功")
-    print(f"   [OK] AkshareDataSource 导入成功")
     print(f"   [OK] EfinanceFetcher = {EfinanceFetcher}")
 except Exception as e:
     print(f"   [FAIL] {e}")
@@ -74,18 +72,6 @@ try:
     else:
         print(f"   [FAIL] {result.get('error_message')}")
         sys.exit(1)
-except Exception as e:
-    print(f"   [FAIL] {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-
-# 测试 5: 使用 AkshareDataSource（兼容层）
-print("\n5. 测试 AkshareDataSource 兼容层...")
-try:
-    source = AkshareDataSource()
-    data = source.get_daily_data('600519', days=5)
-    print(f"   [OK] AkshareDataSource 成功: {len(data)} 行")
 except Exception as e:
     print(f"   [FAIL] {e}")
     import traceback

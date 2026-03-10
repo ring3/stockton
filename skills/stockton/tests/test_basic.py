@@ -16,7 +16,7 @@ def test_import():
     try:
         from data_fetcher import (
             StockDailyData, RealtimeQuote, ChipDistribution,
-            StockDataResult, AkshareDataSource,
+            StockDataResult,
             get_stock_data, get_stock_data_for_llm
         )
         print("[OK] data_fetcher imported")

@@ -39,8 +39,6 @@ try:
 except ImportError:
     ak = None
 
-from data_fetcher import AkshareDataSource
-
 logger = logging.getLogger(__name__)
 
 
@@ -223,7 +221,6 @@ class MarketDataAnalyzer:
         if ak is None:
             raise ImportError("请安装 akshare: pip install akshare")
         
-        self._data_source = AkshareDataSource()
         logger.info("大盘市场数据分析器初始化成功")
     
     def _call_akshare_with_retry(self, fn, name: str, attempts: int = 2):

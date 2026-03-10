@@ -32,7 +32,7 @@ import pandas as pd
 import numpy as np
 
 from data_fetcher import (
-    AkshareDataSource, StockDailyData, RealtimeQuote, ChipDistribution,
+    StockDailyData, RealtimeQuote, ChipDistribution,
     get_stock_data
 )
 
