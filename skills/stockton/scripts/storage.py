@@ -129,6 +129,27 @@ class DatabaseManager:
                 ON stock_daily(code, date)
             """)
             
+            # 创建指数成分股缓存表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS index_components (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    index_code TEXT NOT NULL,
+                    index_name TEXT,
+                    stock_code TEXT NOT NULL,
+                    stock_name TEXT,
+                    weight REAL,
+                    update_date TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(index_code, stock_code)
+                )
+            """)
+            
+            # 创建指数成分股索引
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_index_stock 
+                ON index_components(index_code, stock_code)
+            """)
+            
             conn.commit()
             conn.close()
             logger.debug("数据库表结构初始化完成")
@@ -495,6 +516,307 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取统计信息失败: {e}")
             return {'error': str(e)}
+
+
+    def get_stock_name(self, code: str) -> str:
+        """
+        从数据库获取股票名称
+        
+        优先从最新日期的记录中获取名称
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            股票名称，找不到返回空字符串
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "SELECT name FROM stock_daily WHERE code = ? AND name IS NOT NULL ORDER BY date DESC LIMIT 1",
+                (code,)
+            )
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result and result[0]:
+                return result[0]
+            return ""
+            
+        except Exception as e:
+            logger.debug(f"获取股票名称失败: {e}")
+            return ""
+    
+    def save_index_components(
+        self, 
+        index_code: str, 
+        index_name: str, 
+        components: List[Dict[str, Any]]
+    ) -> int:
+        """
+        保存指数成分股到缓存
+        
+        Args:
+            index_code: 指数代码，如 '000300', '000905'
+            index_name: 指数名称，如 '沪深300', '中证500'
+            components: 成分股列表，每项包含 stock_code, stock_name, weight
+            
+        Returns:
+            保存的记录数
+        """
+        if not components:
+            return 0
+        
+        today_str = date.today().strftime('%Y-%m-%d')
+        saved_count = 0
+        
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            for comp in components:
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO index_components 
+                    (index_code, index_name, stock_code, stock_name, weight, update_date, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        index_code,
+                        index_name,
+                        comp.get('stock_code', ''),
+                        comp.get('stock_name', ''),
+                        comp.get('weight', 0),
+                        today_str
+                    )
+                )
+                saved_count += 1
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"保存 {index_name} 成分股成功，{saved_count} 条")
+            return saved_count
+            
+        except Exception as e:
+            logger.error(f"保存指数成分股失败: {e}")
+            return 0
+    
+    def get_index_components(
+        self, 
+        index_code: str,
+        max_age_days: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        获取指数成分股（带缓存）
+        
+        Args:
+            index_code: 指数代码，如 '000300'
+            max_age_days: 缓存最大天数，超过则认为过期
+            
+        Returns:
+            成分股列表，每项包含 stock_code, stock_name, weight
+        """
+        try:
+            conn = self._get_connection()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # 检查缓存是否过期
+            cutoff_date = (date.today() - timedelta(days=max_age_days)).strftime('%Y-%m-%d')
+            
+            cursor.execute(
+                """
+                SELECT stock_code, stock_name, weight, update_date
+                FROM index_components
+                WHERE index_code = ? AND update_date >= ?
+                ORDER BY weight DESC
+                """,
+                (index_code, cutoff_date)
+            )
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if rows:
+                return [dict(row) for row in rows]
+            return []
+            
+        except Exception as e:
+            logger.error(f"获取指数成分股失败: {e}")
+            return []
+    
+    def is_index_cache_valid(self, index_code: str, max_age_days: int = 1) -> bool:
+        """
+        检查指数成分股缓存是否有效
+        
+        Args:
+            index_code: 指数代码
+            max_age_days: 最大缓存天数
+            
+        Returns:
+            缓存是否有效
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cutoff_date = (date.today() - timedelta(days=max_age_days)).strftime('%Y-%m-%d')
+            
+            cursor.execute(
+                "SELECT COUNT(*) FROM index_components WHERE index_code = ? AND update_date >= ?",
+                (index_code, cutoff_date)
+            )
+            
+            count = cursor.fetchone()[0]
+            conn.close()
+            
+            return count > 0
+            
+        except Exception as e:
+            logger.debug(f"检查缓存有效性失败: {e}")
+            return False
+    
+    def get_latest_tech_data(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取最新技术指标数据（用于技术面选股）
+        
+        从数据库获取最新的K线数据，包含技术指标：
+        - ma5, ma10, ma20: 移动平均线
+        - volume_ratio: 量比
+        - pct_chg: 涨跌幅
+        - close: 最新价
+        - volume: 成交量
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            技术指标字典，找不到返回 None
+        """
+        try:
+            data = self.get_latest_data(code, days=1)
+            if not data:
+                return None
+            
+            latest = data[0]
+            
+            # 计算技术信号
+            ma5 = latest.get('ma5', 0)
+            ma10 = latest.get('ma10', 0)
+            ma20 = latest.get('ma20', 0)
+            close = latest.get('close', 0)
+            
+            # 多头排列：MA5 > MA10 > MA20
+            bullish_arrangement = (ma5 > ma10 > ma20) if (ma5 and ma10 and ma20) else False
+            
+            # 价格位置：(close - ma20) / ma20
+            price_vs_ma20 = ((close - ma20) / ma20 * 100) if ma20 else 0
+            
+            return {
+                'code': code,
+                'name': latest.get('name', ''),
+                'date': latest.get('date', ''),
+                'close': close,
+                'open': latest.get('open', 0),
+                'high': latest.get('high', 0),
+                'low': latest.get('low', 0),
+                'volume': latest.get('volume', 0),
+                'amount': latest.get('amount', 0),
+                'pct_chg': latest.get('pct_chg', 0),
+                'ma5': ma5,
+                'ma10': ma10,
+                'ma20': ma20,
+                'ma60': latest.get('ma60', 0),
+                'volume_ratio': latest.get('volume_ratio', 0),
+                'bullish_arrangement': bullish_arrangement,  # 多头排列
+                'price_vs_ma20': price_vs_ma20,  # 相对于MA20的位置(%)
+            }
+            
+        except Exception as e:
+            logger.debug(f"获取技术指标失败: {e}")
+            return None
+    
+    def get_momentum_data(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取动量数据（用于动量策略选股）
+        
+        计算多时间周期的价格动量：
+        - momentum_20d: 20日涨跌幅（近1个月趋势）
+        - momentum_60d: 60日涨跌幅（近3个月趋势）
+        - momentum_120d: 120日涨跌幅（近半年趋势）
+        - momentum_annual: 年化动量（250日）
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            动量数据字典，包含：
+            {
+                'code': '600519',
+                'momentum_20d': 15.5,      # 20日涨跌幅(%)
+                'momentum_60d': 28.3,      # 60日涨跌幅(%)
+                'momentum_120d': 45.2,     # 120日涨跌幅(%)
+                'momentum_annual': 62.1,   # 250日涨跌幅(%)
+                'trend_consistency': 0.85, # 趋势一致性（0-1，越高越好）
+                'latest_price': 1400.0,    # 最新价格
+            }
+            数据不足返回 None
+        """
+        try:
+            # 获取最近250天数据（用于计算各种周期动量）
+            data = self.get_latest_data(code, days=250)
+            if not data or len(data) < 20:
+                return None
+            
+            # 按日期升序排列（旧的在前）
+            df_data = sorted(data, key=lambda x: x.get('date', ''), reverse=False)
+            
+            latest = df_data[-1]
+            latest_price = latest.get('close', 0)
+            
+            # 计算不同周期的动量
+            def calc_momentum(days_ago: int) -> float:
+                """计算N日前的涨跌幅"""
+                if len(df_data) < days_ago + 1:
+                    return 0
+                past_price = df_data[-(days_ago + 1)].get('close', 0)
+                if past_price and past_price > 0:
+                    return (latest_price - past_price) / past_price * 100
+                return 0
+            
+            momentum_20d = calc_momentum(20)
+            momentum_60d = calc_momentum(60)
+            momentum_120d = calc_momentum(120) if len(df_data) >= 121 else 0
+            momentum_annual = calc_momentum(250) if len(df_data) >= 251 else 0
+            
+            # 计算趋势一致性（各周期动量方向一致的比例）
+            # 正值越多，一致性越高
+            momentums = [momentum_20d, momentum_60d]
+            if momentum_120d != 0:
+                momentums.append(momentum_120d)
+            
+            positive_count = sum(1 for m in momentums if m > 0)
+            trend_consistency = positive_count / len(momentums) if momentums else 0
+            
+            return {
+                'code': code,
+                'name': latest.get('name', ''),
+                'date': latest.get('date', ''),
+                'latest_price': latest_price,
+                'momentum_20d': round(momentum_20d, 2),
+                'momentum_60d': round(momentum_60d, 2),
+                'momentum_120d': round(momentum_120d, 2),
+                'momentum_annual': round(momentum_annual, 2),
+                'trend_consistency': round(trend_consistency, 2),
+            }
+            
+        except Exception as e:
+            logger.debug(f"获取动量数据失败: {e}")
+            return None
 
 
 # 便捷函数
