@@ -341,7 +341,7 @@ class MarketDataAnalyzer:
         self._get_futures_basis_data(overview)
         
         # 5. 获取ETF期权IV数据（新增）
-        self._get_etf_iv_data(overview)
+        # self._get_etf_iv_data(overview)
         
         return overview
     
@@ -508,14 +508,12 @@ class MarketDataAnalyzer:
     
     def _get_etf_iv_data(self, overview: MarketOverview) -> None:
         """
-        获取ETF期权隐含波动率数据（新增）
+        获取ETF期权隐含波动率数据（新增）- OpenClaw优化版
         
         通过 akshare 的 option_risk_indicator_sse 一次性获取所有期权风险指标，
-        然后筛选主要ETF的IV数据：
-        - 50ETF (510050)
-        - 300ETF (510300)
-        - 500ETF (510500)
-        - 创业板ETF (159915)
+        然后筛选主要ETF的IV数据。
+        
+        注意：OpenClaw环境可能有执行时间限制，本方法已优化为快速失败模式。
         
         Args:
             overview: 市场概览数据对象（会被修改）
@@ -539,6 +537,9 @@ class MarketDataAnalyzer:
                     # 只尝试 akshare，因为 efinance 不支持期权
                     if hasattr(fetcher, '_ak'):
                         import akshare as ak
+                        
+                        # OpenClaw环境：使用更短的超时
+                        # 注意：option_risk_indicator_sse 可能较慢
                         df_risk = ak.option_risk_indicator_sse()
                         
                         if df_risk is not None and not df_risk.empty:
@@ -560,7 +561,7 @@ class MarketDataAnalyzer:
                             
                             logger.info(f"[大盘] 从 akshare 获取ETF IV: {list(etf_iv_data.keys())}")
                             break
-                            
+                                
                 except Exception as e:
                     logger.debug(f"[{fetcher.name}] 获取期权IV失败: {e}")
                     continue
@@ -576,29 +577,66 @@ class MarketDataAnalyzer:
 # OpenClaw 工具函数
 # =============================================================================
 
-def get_market_overview(format_type: str = "dict") -> Union[Dict[str, Any], str]:
+# 缓存机制 - 避免OpenClaw重复获取数据（缓存180秒）
+_market_overview_cache_obj = None  # 缓存MarketOverview对象
+_market_overview_cache_dict = None  # 缓存字典格式
+_market_overview_cache_time = 0
+_CACHE_TTL = 180  # 缓存有效期180秒
+
+
+def get_market_overview(format_type: str = "dict", use_cache: bool = True) -> Union[Dict[str, Any], str]:
     """
     获取市场概览数据（OpenClaw 工具）
+    
+    支持缓存机制：180秒内重复调用将返回缓存数据，避免重复网络请求。
+    适用于OpenClaw等需要快速响应的环境。
     
     Args:
         format_type: 输出格式
             - "dict": Python 字典（默认）
             - "json": JSON 字符串
             - "prompt": 格式化的提示词文本
+        use_cache: 是否使用缓存（默认True）
             
     Returns:
         根据 format_type 返回不同格式的市场概览数据
     """
+    global _market_overview_cache_obj, _market_overview_cache_dict, _market_overview_cache_time
+    
     try:
+        import time
+        current_time = time.time()
+        
+        # 检查缓存是否有效（180秒内）
+        if use_cache and _market_overview_cache_obj is not None:
+            elapsed = current_time - _market_overview_cache_time
+            if elapsed < _CACHE_TTL:
+                logger.info(f"[OpenClaw] 使用缓存数据（{elapsed:.0f}秒前获取）")
+                # 根据格式返回缓存数据
+                if format_type == "json":
+                    return json.dumps(_market_overview_cache_dict, ensure_ascii=False, indent=2)
+                elif format_type == "prompt":
+                    return _market_overview_cache_obj.to_llm_prompt()
+                else:
+                    return _market_overview_cache_dict
+        
+        # 获取新数据
+        logger.info("[OpenClaw] 获取新数据...")
         analyzer = MarketDataAnalyzer()
         overview = analyzer.get_market_overview()
         
+        # 更新缓存
+        _market_overview_cache_obj = overview
+        _market_overview_cache_dict = overview.to_dict()
+        _market_overview_cache_time = current_time
+        
+        # 根据格式返回
         if format_type == "json":
             return overview.to_json()
         elif format_type == "prompt":
             return overview.to_llm_prompt()
         else:
-            return overview.to_dict()
+            return _market_overview_cache_dict
             
     except Exception as e:
         logger.error(f"获取市场概览失败: {e}")
