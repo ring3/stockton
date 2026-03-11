@@ -760,6 +760,239 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取期货贴水数据失败: {e}")
             return pd.DataFrame()
 
+    # ========== 股票筛选相关接口实现（新增）==========
+
+    def _get_index_components(self, index_code: str) -> pd.DataFrame:
+        """
+        获取指数成分股
+
+        Args:
+            index_code: 指数代码，如 '000300', '000905', '000852', '000016'
+
+        Returns:
+            DataFrame 包含列：stock_code, stock_name, weight
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取指数 {index_code} 成分股...")
+
+            df = self._ak.index_stock_cons_weight_csindex(symbol=index_code)
+
+            if df is not None and not df.empty:
+                # 标准化列名
+                column_mapping = {
+                    '成分券代码': 'stock_code',
+                    '成分券名称': 'stock_name',
+                    '权重': 'weight',
+                }
+                for old, new in column_mapping.items():
+                    if old in df.columns:
+                        df = df.rename(columns={old: new})
+
+                # 确保必要列存在
+                if 'stock_code' in df.columns and 'stock_name' in df.columns:
+                    return df[['stock_code', 'stock_name', 'weight']]
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取指数 {index_code} 成分股失败: {e}")
+            return pd.DataFrame()
+
+    def _get_stock_pool(self, market: str = "A股") -> pd.DataFrame:
+        """
+        获取市场股票池
+
+        Args:
+            market: 市场范围（"A股", "沪市", "深市", "创业板", "科创板"）
+
+        Returns:
+            DataFrame 包含列：code, name, market, industry
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取 {market} 股票池...")
+
+            # 根据市场选择对应接口
+            if market == "沪市":
+                df = self._ak.stock_sh_a_spot_em()
+            elif market == "深市":
+                df = self._ak.stock_sz_a_spot_em()
+            elif market == "创业板":
+                df = self._ak.stock_cy_a_spot_em()
+            elif market == "科创板":
+                df = self._ak.stock_kc_a_spot_em()
+            else:  # A股全部
+                df = self._ak.stock_zh_a_spot_em()
+
+            if df is not None and not df.empty:
+                # 标准化列名
+                column_mapping = {
+                    '代码': 'code',
+                    '名称': 'name',
+                    '所属行业': 'industry',
+                }
+                for old, new in column_mapping.items():
+                    if old in df.columns:
+                        df = df.rename(columns={old: new})
+
+                # 添加市场标识
+                df['market'] = market
+
+                # 选择必要列
+                cols = ['code', 'name']
+                if 'industry' in df.columns:
+                    cols.append('industry')
+                df = df[cols]
+
+                return df
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取 {market} 股票池失败: {e}")
+            return pd.DataFrame()
+
+    def _get_industry_stocks(self, industry_name: str) -> pd.DataFrame:
+        """
+        获取行业成分股
+
+        Args:
+            industry_name: 行业名称，如 "半导体", "白酒"
+
+        Returns:
+            DataFrame 包含列：code, name
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取行业 {industry_name} 成分股...")
+
+            # 尝试使用板块数据接口
+            try:
+                df = self._ak.stock_board_industry_cons_em(symbol=industry_name)
+                if df is not None and not df.empty:
+                    # 标准化列名
+                    if '代码' in df.columns:
+                        df = df.rename(columns={'代码': 'code'})
+                    if '名称' in df.columns:
+                        df = df.rename(columns={'名称': 'name'})
+
+                    if 'code' in df.columns and 'name' in df.columns:
+                        return df[['code', 'name']]
+            except Exception as e1:
+                logger.debug(f"[Akshare] 方法1获取行业成分股失败: {e1}")
+
+            # 备选：从全市场筛选所属行业
+            try:
+                df = self._ak.stock_zh_a_spot_em()
+                if df is not None and not df.empty:
+                    industry_stocks = df[df['所属行业'] == industry_name]
+                    if not industry_stocks.empty:
+                        result = industry_stocks[['代码', '名称']].copy()
+                        result = result.rename(columns={'代码': 'code', '名称': 'name'})
+                        return result
+            except Exception as e2:
+                logger.debug(f"[Akshare] 方法2获取行业成分股失败: {e2}")
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取行业 {industry_name} 成分股失败: {e}")
+            return pd.DataFrame()
+
+    def _get_industry_list(self) -> pd.DataFrame:
+        """
+        获取行业/板块列表
+
+        Returns:
+            DataFrame 包含列：name, code（可选）
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取行业列表...")
+
+            df = self._ak.stock_board_industry_name_em()
+
+            if df is not None and not df.empty:
+                # 标准化列名
+                if '板块名称' in df.columns:
+                    df = df.rename(columns={'板块名称': 'name'})
+
+                if 'name' in df.columns:
+                    return df[['name']]
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取行业列表失败: {e}")
+            return pd.DataFrame()
+
+    # ========== 财务分析相关接口实现（新增）==========
+
+    def _get_financial_report(
+        self,
+        stock_code: str,
+        report_type: str = "利润表"
+    ) -> pd.DataFrame:
+        """
+        获取财务报表
+
+        Args:
+            stock_code: 股票代码
+            report_type: 报表类型（"利润表", "资产负债表", "现金流量表"）
+
+        Returns:
+            DataFrame 包含多期报表数据
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取 {stock_code} {report_type}...")
+
+            # 判断市场
+            if stock_code.startswith('6'):
+                stock_code_full = f"{stock_code}.SH"
+            else:
+                stock_code_full = f"{stock_code}.SZ"
+
+            df = self._ak.stock_financial_report_sina(
+                stock=stock_code_full,
+                symbol=report_type
+            )
+
+            if df is not None and not df.empty:
+                return df
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取 {stock_code} {report_type}失败: {e}")
+            return pd.DataFrame()
+
+    def _get_financial_indicators(self, stock_code: str) -> pd.DataFrame:
+        """
+        获取财务分析指标
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            DataFrame 包含关键财务指标
+        """
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 获取 {stock_code} 财务指标...")
+
+            df = self._ak.stock_financial_analysis_indicator(symbol=stock_code)
+
+            if df is not None and not df.empty:
+                return df
+
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取 {stock_code} 财务指标失败: {e}")
+            return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码

@@ -498,6 +498,74 @@ class EfinanceFetcher(BaseFetcher):
         logger.warning("[Efinance] 不支持期货数据，请使用 AkshareFetcher")
         return pd.DataFrame()
 
+    # ========== 股票筛选相关接口（暂不支持）==========
+
+    def _get_index_components(self, index_code: str) -> pd.DataFrame:
+        """
+        获取指数成分股
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持指数成分股查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
+    def _get_stock_pool(self, market: str = "A股") -> pd.DataFrame:
+        """
+        获取市场股票池
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持股票池查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
+    def _get_industry_stocks(self, industry_name: str) -> pd.DataFrame:
+        """
+        获取行业成分股
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持行业成分股查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
+    def _get_industry_list(self) -> pd.DataFrame:
+        """
+        获取行业/板块列表
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持行业列表查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
+    # ========== 财务分析相关接口（暂不支持）==========
+
+    def _get_financial_report(
+        self,
+        stock_code: str,
+        report_type: str = "利润表"
+    ) -> pd.DataFrame:
+        """
+        获取财务报表
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持财务报表查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
+    def _get_financial_indicators(self, stock_code: str) -> pd.DataFrame:
+        """
+        获取财务分析指标
+        
+        注意：efinance 暂不支持此接口，返回空 DataFrame
+        使用 akshare 作为备用
+        """
+        logger.warning("[Efinance] 不支持财务指标查询，请使用 AkshareFetcher")
+        return pd.DataFrame()
+
 
 if __name__ == "__main__":
     # 测试代码

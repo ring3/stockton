@@ -165,11 +165,21 @@ class FinancialAnalyzer:
     """财务分析器"""
     
     def __init__(self):
+        # 初始化数据源管理器（优先使用，替代直接akshare调用）
+        self._data_manager = None
+        try:
+            from .data_provider import DataFetcherManager
+            self._data_manager = DataFetcherManager()
+            logger.debug("财务分析器已初始化数据源管理器")
+        except Exception as e:
+            logger.warning(f"财务分析器数据源管理器初始化失败: {e}")
+        
+        # 保留akshare作为备选
         try:
             import akshare as ak
             self._ak = ak
         except ImportError:
-            logger.error("akshare未安装，财务分析功能不可用")
+            logger.warning("akshare未安装")
             self._ak = None
         
         # 初始化数据库连接
@@ -192,7 +202,7 @@ class FinancialAnalyzer:
     
     def get_financial_data(self, stock_code: str) -> Optional[FinancialIndicators]:
         """
-        获取个股完整财务数据
+        获取个股完整财务数据（使用统一数据源接口）
         
         Args:
             stock_code: 股票代码，如 '600519'
@@ -200,8 +210,8 @@ class FinancialAnalyzer:
         Returns:
             FinancialIndicators对象，失败返回None
         """
-        if self._ak is None:
-            logger.error("akshare未安装")
+        if self._data_manager is None and self._ak is None:
+            logger.error("无可用数据源")
             return None
         
         try:
@@ -258,56 +268,108 @@ class FinancialAnalyzer:
         return ""  # 无法获取时返回空字符串
     
     def _get_profit_statement(self, stock_code: str) -> Optional[pd.DataFrame]:
-        """获取利润表"""
-        try:
-            # 判断市场
-            if stock_code.startswith('6'):
-                stock_code_full = f"{stock_code}.SH"
-            else:
-                stock_code_full = f"{stock_code}.SZ"
-            
-            df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="利润表")
-            return df
-        except Exception as e:
-            logger.debug(f"获取利润表失败: {e}")
-            return None
+        """获取利润表（使用统一数据源接口）"""
+        # 优先使用数据源管理器
+        if self._data_manager:
+            try:
+                df, source = self._data_manager.get_financial_report(stock_code, "利润表")
+                if df is not None and not df.empty:
+                    logger.debug(f"[财务分析] 从 {source} 获取利润表成功")
+                    return df
+            except Exception as e:
+                logger.debug(f"数据源管理器获取利润表失败: {e}")
+        
+        # 备选：直接使用akshare
+        if self._ak:
+            try:
+                # 判断市场
+                if stock_code.startswith('6'):
+                    stock_code_full = f"{stock_code}.SH"
+                else:
+                    stock_code_full = f"{stock_code}.SZ"
+                
+                df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="利润表")
+                return df
+            except Exception as e:
+                logger.debug(f"akshare获取利润表失败: {e}")
+        
+        return None
     
     def _get_balance_sheet(self, stock_code: str) -> Optional[pd.DataFrame]:
-        """获取资产负债表"""
-        try:
-            if stock_code.startswith('6'):
-                stock_code_full = f"{stock_code}.SH"
-            else:
-                stock_code_full = f"{stock_code}.SZ"
-            
-            df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="资产负债表")
-            return df
-        except Exception as e:
-            logger.debug(f"获取资产负债表失败: {e}")
-            return None
+        """获取资产负债表（使用统一数据源接口）"""
+        # 优先使用数据源管理器
+        if self._data_manager:
+            try:
+                df, source = self._data_manager.get_financial_report(stock_code, "资产负债表")
+                if df is not None and not df.empty:
+                    logger.debug(f"[财务分析] 从 {source} 获取资产负债表成功")
+                    return df
+            except Exception as e:
+                logger.debug(f"数据源管理器获取资产负债表失败: {e}")
+        
+        # 备选：直接使用akshare
+        if self._ak:
+            try:
+                if stock_code.startswith('6'):
+                    stock_code_full = f"{stock_code}.SH"
+                else:
+                    stock_code_full = f"{stock_code}.SZ"
+                
+                df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="资产负债表")
+                return df
+            except Exception as e:
+                logger.debug(f"akshare获取资产负债表失败: {e}")
+        
+        return None
     
     def _get_cash_flow(self, stock_code: str) -> Optional[pd.DataFrame]:
-        """获取现金流量表"""
-        try:
-            if stock_code.startswith('6'):
-                stock_code_full = f"{stock_code}.SH"
-            else:
-                stock_code_full = f"{stock_code}.SZ"
-            
-            df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="现金流量表")
-            return df
-        except Exception as e:
-            logger.debug(f"获取现金流量表失败: {e}")
-            return None
+        """获取现金流量表（使用统一数据源接口）"""
+        # 优先使用数据源管理器
+        if self._data_manager:
+            try:
+                df, source = self._data_manager.get_financial_report(stock_code, "现金流量表")
+                if df is not None and not df.empty:
+                    logger.debug(f"[财务分析] 从 {source} 获取现金流量表成功")
+                    return df
+            except Exception as e:
+                logger.debug(f"数据源管理器获取现金流量表失败: {e}")
+        
+        # 备选：直接使用akshare
+        if self._ak:
+            try:
+                if stock_code.startswith('6'):
+                    stock_code_full = f"{stock_code}.SH"
+                else:
+                    stock_code_full = f"{stock_code}.SZ"
+                
+                df = self._ak.stock_financial_report_sina(stock=stock_code_full, symbol="现金流量表")
+                return df
+            except Exception as e:
+                logger.debug(f"akshare获取现金流量表失败: {e}")
+        
+        return None
     
     def _get_key_indicators(self, stock_code: str) -> Optional[pd.DataFrame]:
-        """获取关键财务指标"""
-        try:
-            df = self._ak.stock_financial_analysis_indicator(symbol=stock_code)
-            return df
-        except Exception as e:
-            logger.debug(f"获取关键指标失败: {e}")
-            return None
+        """获取关键财务指标（使用统一数据源接口）"""
+        # 优先使用数据源管理器
+        if self._data_manager:
+            try:
+                df, source = self._data_manager.get_financial_indicators(stock_code)
+                if df is not None and not df.empty:
+                    logger.debug(f"[财务分析] 从 {source} 获取财务指标成功")
+                    return df
+            except Exception as e:
+                logger.debug(f"数据源管理器获取财务指标失败: {e}")
+        
+        # 备选：直接使用akshare
+        if self._ak:
+            try:
+                df = self._ak.stock_financial_analysis_indicator(symbol=stock_code)
+                return df
+            except Exception as e:
+                logger.debug(f"akshare获取关键指标失败: {e}")
+        
+        return None
     
     def _calculate_indicators(
         self, 

@@ -256,6 +256,113 @@ class BaseFetcher(ABC):
         """
         pass
 
+    # ========== 股票筛选相关接口（新增）==========
+
+    @abstractmethod
+    def _get_index_components(self, index_code: str) -> pd.DataFrame:
+        """
+        获取指数成分股（用于选股）
+
+        Args:
+            index_code: 指数代码，如 '000300', '000905', '000852', '000016'
+
+        Returns:
+            DataFrame 包含列：
+            - stock_code: 股票代码
+            - stock_name: 股票名称
+            - weight: 权重（可选）
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
+    @abstractmethod
+    def _get_stock_pool(self, market: str = "A股") -> pd.DataFrame:
+        """
+        获取市场股票池（用于选股）
+
+        Args:
+            market: 市场范围（"A股", "沪市", "深市", "创业板", "科创板"）
+
+        Returns:
+            DataFrame 包含列：
+            - code: 股票代码
+            - name: 股票名称
+            - market: 所属市场
+            - industry: 所属行业（可选）
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
+    @abstractmethod
+    def _get_industry_stocks(self, industry_name: str) -> pd.DataFrame:
+        """
+        获取行业成分股（用于选股）
+
+        Args:
+            industry_name: 行业名称，如 "半导体", "白酒"
+
+        Returns:
+            DataFrame 包含列：
+            - code: 股票代码
+            - name: 股票名称
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
+    @abstractmethod
+    def _get_industry_list(self) -> pd.DataFrame:
+        """
+        获取行业/板块列表（用于选股）
+
+        Returns:
+            DataFrame 包含列：
+            - name: 行业名称
+            - code: 行业代码（可选）
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
+    # ========== 财务分析相关接口（新增）==========
+
+    @abstractmethod
+    def _get_financial_report(
+        self,
+        stock_code: str,
+        report_type: str = "利润表"
+    ) -> pd.DataFrame:
+        """
+        获取财务报表（用于财务分析）
+
+        Args:
+            stock_code: 股票代码
+            report_type: 报表类型（"利润表", "资产负债表", "现金流量表"）
+
+        Returns:
+            DataFrame 包含多期报表数据，列名取决于报表类型
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
+    @abstractmethod
+    def _get_financial_indicators(self, stock_code: str) -> pd.DataFrame:
+        """
+        获取财务分析指标（用于财务分析）
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            DataFrame 包含关键财务指标，如：
+            - 净资产收益率(roe)
+            - 毛利率(gross_margin)
+            - 营收增长率(revenue_growth)
+            - 资产负债率(debt_ratio)
+            - 市盈率(pe_ratio)
+            - 市净率(pb_ratio)
+            如果不支持返回空 DataFrame，调用端需处理
+        """
+        pass
+
     def get_daily_data(
         self,
         stock_code: str,
@@ -756,3 +863,206 @@ class DataFetcherManager:
         error_summary = "所有数据源获取期货贴水数据失败:\n" + "\n".join(errors)
         logger.error(error_summary)
         raise DataFetchError(error_summary)
+
+    # ========== 股票筛选相关统一访问方法（新增）==========
+
+    def get_index_components(self, index_code: str) -> Tuple[pd.DataFrame, str]:
+        """
+        获取指数成分股（自动切换数据源）
+        
+        Args:
+            index_code: 指数代码，如 '000300', '000905'
+        
+        Returns:
+            Tuple[DataFrame, str]: (成分股数据, 成功的数据源名称)
+            DataFrame 包含列：stock_code, stock_name, weight
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取指数 {index_code} 成分股...")
+                df = fetcher._get_index_components(index_code)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取指数 {index_code} 成分股")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        # 所有数据源都失败，返回空 DataFrame
+        logger.warning(f"所有数据源获取指数 {index_code} 成分股失败，返回空数据")
+        return pd.DataFrame(), "None"
+
+    def get_stock_pool(self, market: str = "A股") -> Tuple[pd.DataFrame, str]:
+        """
+        获取市场股票池（自动切换数据源）
+        
+        Args:
+            market: 市场范围（"A股", "沪市", "深市", "创业板", "科创板"）
+        
+        Returns:
+            Tuple[DataFrame, str]: (股票池数据, 成功的数据源名称)
+            DataFrame 包含列：code, name, market, industry
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取 {market} 股票池...")
+                df = fetcher._get_stock_pool(market)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取 {market} 股票池")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning(f"所有数据源获取 {market} 股票池失败，返回空数据")
+        return pd.DataFrame(), "None"
+
+    def get_industry_stocks(self, industry_name: str) -> Tuple[pd.DataFrame, str]:
+        """
+        获取行业成分股（自动切换数据源）
+        
+        Args:
+            industry_name: 行业名称，如 "半导体", "白酒"
+        
+        Returns:
+            Tuple[DataFrame, str]: (成分股数据, 成功的数据源名称)
+            DataFrame 包含列：code, name
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取行业 {industry_name} 成分股...")
+                df = fetcher._get_industry_stocks(industry_name)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取行业 {industry_name} 成分股")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning(f"所有数据源获取行业 {industry_name} 成分股失败，返回空数据")
+        return pd.DataFrame(), "None"
+
+    def get_industry_list(self) -> Tuple[pd.DataFrame, str]:
+        """
+        获取行业/板块列表（自动切换数据源）
+        
+        Returns:
+            Tuple[DataFrame, str]: (行业列表, 成功的数据源名称)
+            DataFrame 包含列：name, code（可选）
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取行业列表...")
+                df = fetcher._get_industry_list()
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取行业列表")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning("所有数据源获取行业列表失败，返回空数据")
+        return pd.DataFrame(), "None"
+
+    # ========== 财务分析相关统一访问方法（新增）==========
+
+    def get_financial_report(
+        self,
+        stock_code: str,
+        report_type: str = "利润表"
+    ) -> Tuple[pd.DataFrame, str]:
+        """
+        获取财务报表（自动切换数据源）
+        
+        Args:
+            stock_code: 股票代码
+            report_type: 报表类型（"利润表", "资产负债表", "现金流量表"）
+        
+        Returns:
+            Tuple[DataFrame, str]: (报表数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取 {stock_code} {report_type}...")
+                df = fetcher._get_financial_report(stock_code, report_type)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取财务报表")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning(f"所有数据源获取 {stock_code} {report_type}失败，返回空数据")
+        return pd.DataFrame(), "None"
+
+    def get_financial_indicators(self, stock_code: str) -> Tuple[pd.DataFrame, str]:
+        """
+        获取财务分析指标（自动切换数据源）
+        
+        Args:
+            stock_code: 股票代码
+        
+        Returns:
+            Tuple[DataFrame, str]: (财务指标数据, 成功的数据源名称)
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取 {stock_code} 财务指标...")
+                df = fetcher._get_financial_indicators(stock_code)
+                
+                if df is not None and not df.empty:
+                    logger.info(f"[{fetcher.name}] 成功获取财务指标")
+                    return df, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning(f"所有数据源获取 {stock_code} 财务指标失败，返回空数据")
+        return pd.DataFrame(), "None"

@@ -264,14 +264,24 @@ class StockScreener:
     }
     
     def __init__(self):
+        self._financial_cache = {}  # 财务数据缓存
+        
+        # 初始化数据源管理器（优先使用，替代直接akshare调用）
+        self._data_manager = None
+        try:
+            from .data_provider import DataFetcherManager
+            self._data_manager = DataFetcherManager()
+            logger.debug("选股器已初始化数据源管理器")
+        except Exception as e:
+            logger.warning(f"选股器数据源管理器初始化失败: {e}")
+        
+        # 保留akshare作为备选（兼容旧代码）
         try:
             import akshare as ak
             self._ak = ak
         except ImportError:
-            logger.error("akshare未安装，选股功能不可用")
+            logger.warning("akshare未安装")
             self._ak = None
-        
-        self._financial_cache = {}  # 财务数据缓存
         
         # 初始化数据库连接
         self._db = None
@@ -367,7 +377,7 @@ class StockScreener:
     
     def _get_stock_pool(self, market: str, index_name: Optional[str] = None) -> List[str]:
         """
-        获取股票池
+        获取股票池（使用统一数据源接口）
         
         Args:
             market: 市场范围（"A股", "沪市", "深市", "创业板", "科创板"）
@@ -378,20 +388,30 @@ class StockScreener:
             if index_name:
                 return self._get_index_components(index_name)
             
-            # 否则从市场范围获取
-            if market == "沪市":
-                df = self._ak.stock_sh_a_spot_em()
-            elif market == "深市":
-                df = self._ak.stock_sz_a_spot_em()
-            elif market == "创业板":
-                df = self._ak.stock_cy_a_spot_em()
-            elif market == "科创板":
-                df = self._ak.stock_kc_a_spot_em()
-            else:  # A股全部
-                df = self._ak.stock_zh_a_spot_em()
+            # 优先使用数据源管理器（统一接口）
+            if self._data_manager:
+                df, source = self._data_manager.get_stock_pool(market)
+                if df is not None and not df.empty:
+                    logger.info(f"[选股] 从 {source} 获取 {market} 股票池: {len(df)} 只")
+                    return df['code'].tolist()
+                else:
+                    logger.warning(f"[选股] 数据源管理器返回空数据，尝试备选方案")
             
-            if df is not None and not df.empty:
-                return df['代码'].tolist()
+            # 备选：直接使用akshare
+            if self._ak:
+                if market == "沪市":
+                    df = self._ak.stock_sh_a_spot_em()
+                elif market == "深市":
+                    df = self._ak.stock_sz_a_spot_em()
+                elif market == "创业板":
+                    df = self._ak.stock_cy_a_spot_em()
+                elif market == "科创板":
+                    df = self._ak.stock_kc_a_spot_em()
+                else:  # A股全部
+                    df = self._ak.stock_zh_a_spot_em()
+                
+                if df is not None and not df.empty:
+                    return df['代码'].tolist()
         except Exception as e:
             logger.error(f"获取股票池失败: {e}")
         
@@ -399,9 +419,7 @@ class StockScreener:
     
     def _get_index_components(self, index_name: str) -> List[str]:
         """
-        获取指数成分股（带数据库缓存）
-        
-        优先从数据库缓存获取，缓存不存在或过期则从网络获取并保存到数据库
+        获取指数成分股（带数据库缓存，使用统一数据源接口）
         
         Args:
             index_name: 指数名称（"沪深300", "中证500", "中证1000", "上证50"）
@@ -436,14 +454,12 @@ class StockScreener:
                 except Exception as e:
                     logger.debug(f"从数据库获取指数成分股失败: {e}")
             
-            # 方法2：从网络获取
-            components = []
-            try:
-                # 使用 index_stock_cons_weight_csindex（已验证可用）
-                df = self._ak.index_stock_cons_weight_csindex(symbol=index_code)
+            # 方法2：使用数据源管理器（统一接口）
+            if self._data_manager:
+                df, source = self._data_manager.get_index_components(index_code)
                 if df is not None and not df.empty:
-                    components = df['成分券代码'].tolist()
-                    logger.info(f"[选股] 从网络获取 {index_name} 成分股: {len(components)} 只")
+                    components = df['stock_code'].tolist()
+                    logger.info(f"[选股] 从 {source} 获取 {index_name} 成分股: {len(components)} 只")
                     
                     # 保存到数据库缓存
                     if self._db:
@@ -451,17 +467,28 @@ class StockScreener:
                             cache_data = []
                             for _, row in df.iterrows():
                                 cache_data.append({
-                                    'stock_code': row.get('成分券代码', ''),
-                                    'stock_name': row.get('成分券名称', ''),
-                                    'weight': row.get('权重', 0)
+                                    'stock_code': row.get('stock_code', ''),
+                                    'stock_name': row.get('stock_name', ''),
+                                    'weight': row.get('weight', 0)
                                 })
                             self._db.save_index_components(index_code, index_name, cache_data)
                         except Exception as e:
                             logger.debug(f"保存指数成分股缓存失败: {e}")
                     
                     return components
-            except Exception as e1:
-                logger.debug(f"从网络获取成分股失败: {e1}")
+                else:
+                    logger.warning(f"[选股] 数据源管理器返回空数据，尝试备选方案")
+            
+            # 方法3：直接使用akshare（备选）
+            if self._ak:
+                try:
+                    df = self._ak.index_stock_cons_weight_csindex(symbol=index_code)
+                    if df is not None and not df.empty:
+                        components = df['成分券代码'].tolist()
+                        logger.info(f"[选股] 从akshare获取 {index_name} 成分股: {len(components)} 只")
+                        return components
+                except Exception as e:
+                    logger.debug(f"从akshare获取成分股失败: {e}")
             
             logger.error(f"无法获取 {index_name} 成分股")
             return []
@@ -472,7 +499,7 @@ class StockScreener:
     
     def get_industry_stocks(self, industry_name: str) -> List[str]:
         """
-        获取板块/行业成分股
+        获取板块/行业成分股（使用统一数据源接口）
         
         Args:
             industry_name: 行业/板块名称，如 "半导体", "白酒", "银行"
@@ -483,21 +510,33 @@ class StockScreener:
         try:
             logger.info(f"[选股] 获取 {industry_name} 板块股票...")
             
-            # 获取行业成分股
-            try:
-                # 尝试使用板块数据
-                df = self._ak.stock_board_industry_cons_em(symbol=industry_name)
+            # 优先使用数据源管理器（统一接口）
+            if self._data_manager:
+                df, source = self._data_manager.get_industry_stocks(industry_name)
                 if df is not None and not df.empty:
-                    return df['代码'].tolist()
-            except Exception as e1:
-                logger.debug(f"方法1获取行业成分股失败: {e1}")
+                    logger.info(f"[选股] 从 {source} 获取行业 {industry_name} 成分股: {len(df)} 只")
+                    return df['code'].tolist()
+                else:
+                    logger.warning(f"[选股] 数据源管理器返回空数据，尝试备选方案")
             
-            # 备选：从全市场筛选所属行业
-            df = self._ak.stock_zh_a_spot_em()
-            if df is not None and not df.empty:
-                industry_stocks = df[df['所属行业'] == industry_name]
-                if not industry_stocks.empty:
-                    return industry_stocks['代码'].tolist()
+            # 备选：直接使用akshare
+            if self._ak:
+                try:
+                    df = self._ak.stock_board_industry_cons_em(symbol=industry_name)
+                    if df is not None and not df.empty:
+                        return df['代码'].tolist()
+                except Exception as e1:
+                    logger.debug(f"方法1获取行业成分股失败: {e1}")
+                
+                # 备选2：从全市场筛选所属行业
+                try:
+                    df = self._ak.stock_zh_a_spot_em()
+                    if df is not None and not df.empty:
+                        industry_stocks = df[df['所属行业'] == industry_name]
+                        if not industry_stocks.empty:
+                            return industry_stocks['代码'].tolist()
+                except Exception as e2:
+                    logger.debug(f"方法2获取行业成分股失败: {e2}")
             
             logger.warning(f"未找到 {industry_name} 板块的股票")
             return []
@@ -507,12 +546,20 @@ class StockScreener:
             return []
     
     def get_available_industries(self) -> List[str]:
-        """获取可用的行业/板块列表"""
+        """获取可用的行业/板块列表（使用统一数据源接口）"""
         try:
-            # 获取板块列表
-            df = self._ak.stock_board_industry_name_em()
-            if df is not None and not df.empty:
-                return df['板块名称'].tolist()
+            # 优先使用数据源管理器
+            if self._data_manager:
+                df, source = self._data_manager.get_industry_list()
+                if df is not None and not df.empty:
+                    logger.info(f"[选股] 从 {source} 获取行业列表: {len(df)} 个")
+                    return df['name'].tolist()
+            
+            # 备选：直接使用akshare
+            if self._ak:
+                df = self._ak.stock_board_industry_name_em()
+                if df is not None and not df.empty:
+                    return df['板块名称'].tolist()
         except Exception as e:
             logger.error(f"获取行业列表失败: {e}")
         

@@ -79,15 +79,17 @@ def preload_index_data(
     }
     
     try:
-        import akshare as ak
         try:
             from .storage import DatabaseManager
             from .data_fetcher import get_stock_data
+            from .data_provider import DataFetcherManager
         except ImportError:
             from storage import DatabaseManager
             from data_fetcher import get_stock_data
+            from data_provider import DataFetcherManager
         
         db = DatabaseManager.get_instance()
+        data_manager = DataFetcherManager()
         
         for index_name in indices:
             if index_name not in INDEX_CODE_MAP:
@@ -98,13 +100,14 @@ def preload_index_data(
             logger.info(f"[预加载] 开始处理 {index_name}({index_code})...")
             
             try:
-                # 获取指数成分股
-                df = ak.index_stock_cons_weight_csindex(symbol=index_code)
+                # 获取指数成分股（使用统一数据源接口）
+                df, source = data_manager.get_index_components(index_code)
                 if df is None or df.empty:
                     logger.error(f"[预加载] 获取 {index_name} 成分股失败")
                     continue
                 
-                stock_codes = df['成分券代码'].tolist()
+                logger.info(f"[预加载] 从 {source} 获取 {index_name} 成分股: {len(df)} 只")
+                stock_codes = df['stock_code'].tolist()
                 if max_stocks:
                     stock_codes = stock_codes[:max_stocks]
                 
@@ -140,9 +143,9 @@ def preload_index_data(
                     components = []
                     for _, row in df.iterrows():
                         components.append({
-                            'stock_code': row.get('成分券代码', ''),
-                            'stock_name': row.get('成分券名称', ''),
-                            'weight': row.get('权重', 0)
+                            'stock_code': row.get('stock_code', ''),
+                            'stock_name': row.get('stock_name', ''),
+                            'weight': row.get('weight', 0)
                         })
                     db.save_index_components(index_code, index_name, components)
                     logger.info(f"[预加载] {index_name} 成分股缓存已更新: {len(components)} 只")
@@ -244,13 +247,15 @@ def check_preload_status(indices: List[str] = None) -> Dict[str, Any]:
     result = {}
     
     try:
-        import akshare as ak
         try:
             from .storage import DatabaseManager
+            from .data_provider import DataFetcherManager
         except ImportError:
             from storage import DatabaseManager
+            from data_provider import DataFetcherManager
         
         db = DatabaseManager.get_instance()
+        data_manager = DataFetcherManager()
         
         for index_name in indices:
             if index_name not in INDEX_CODE_MAP:
@@ -259,12 +264,12 @@ def check_preload_status(indices: List[str] = None) -> Dict[str, Any]:
             index_code = INDEX_CODE_MAP[index_name]
             
             try:
-                # 获取指数成分股
-                df = ak.index_stock_cons_weight_csindex(symbol=index_code)
+                # 获取指数成分股（使用统一数据源接口）
+                df, source = data_manager.get_index_components(index_code)
                 if df is None or df.empty:
                     continue
                 
-                stock_codes = df['成分券代码'].tolist()
+                stock_codes = df['stock_code'].tolist()
                 
                 # 检查每只股票是否有数据
                 has_data_count = 0
