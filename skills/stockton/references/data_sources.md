@@ -1,142 +1,142 @@
-# Data Sources Reference
+# 数据源参考
 
-Understanding the multi-source data architecture and fallback logic.
+理解多数据源架构和降级逻辑。
 
-## Architecture Overview
+## 架构概览
 
 ```
-User Request
+用户请求
     ↓
-DataFetcherManager (Priority 0, 1, 2...)
+DataFetcherManager（优先级0、1、2...）
     ↓
-EfinanceFetcher → AkshareFetcher → [Future: BaostockFetcher, TushareFetcher]
+EfinanceFetcher → AkshareFetcher → [未来: BaostockFetcher, TushareFetcher]
     ↓
-Database Cache (SQLite)
+数据库缓存（SQLite）
     ↓
-Raw Data
+原始数据
 ```
 
-## Data Source Priority
+## 数据源优先级
 
-### Priority 0: EfinanceFetcher
+### 优先级0：EfinanceFetcher
 
-**Package:** `efinance`
+**包：** `efinance`
 
-**Pros:**
-- Fast response times
-- Clean API design
-- Automatic retry logic
-- Good for bulk requests
+**优点：**
+- 响应速度快
+- API设计简洁
+- 自动重试逻辑
+- 适合批量请求
 
-**Cons:**
-- Limited data types (no financial reports, no index constituents)
-- Fewer technical indicators pre-calculated
+**缺点：**
+- 数据类型有限（无财报、无指数成分股）
+- 较少预计算技术指标
 
-**Best for:**
-- Historical K-line data
-- Real-time quotes
-- ETF data
+**最适合：**
+- 历史K线数据
+- 实时行情
+- ETF数据
 
-**Rate limiting:** 1.5-3.0 seconds between requests
+**速率限制：** 请求间隔1.5-3.0秒
 
-### Priority 1: AkshareFetcher
+### 优先级1：AkshareFetcher
 
-**Package:** `akshare`
+**包：** `akshare`
 
-**Pros:**
-- Comprehensive data coverage
-- Financial reports
-- Index constituents
-- Industry classifications
-- Derivatives data (futures, options)
-- Multiple backup sources (Eastmoney → Sina → Tencent → Netease)
+**优点：**
+- 数据覆盖全面
+- 财务报表
+- 指数成分股
+- 行业分类
+- 衍生品数据（期货、期权）
+- 多备用源（东方财富→新浪→腾讯→网易）
 
-**Cons:**
-- Slower than efinance
-- More prone to API changes
-- Requires more retry logic
+**缺点：**
+- 比efinance慢
+- 更容易API变更
+- 需要更多重试逻辑
 
-**Best for:**
-- Financial analysis
-- Stock screening
-- Market overview data
-- Index constituents
+**最适合：**
+- 财务分析
+- 股票筛选
+- 市场概览数据
+- 指数成分股
 
-**Rate limiting:** 2.0-5.0 seconds between requests
+**速率限制：** 请求间隔2.0-5.0秒
 
-### Priority 2: Database Cache
+### 优先级2：数据库缓存
 
-**Type:** SQLite (`data/stock_data.db`)
+**类型：** SQLite (`data/stock_data.db`)
 
-**Purpose:**
-- Avoid re-fetching historical data
-- Store computed technical indicators
-- Cache index constituents
-- Enable offline analysis
+**用途：**
+- 避免重复获取历史数据
+- 存储计算的技术指标
+- 缓存指数成分股
+- 支持离线分析
 
-**Cache policies:**
-| Data type | Cache duration | Notes |
-|-----------|---------------|-------|
-| Historical K-line | Permanent | Until manually cleared |
-| Index constituents | 1 day | Updates daily |
-| Real-time quotes | No cache | Always fresh |
-| Financial reports | 90 days | Quarterly updates |
+**缓存策略：**
+| 数据类型 | 缓存时长 | 说明 |
+|---------|---------|------|
+| 历史K线 | 永久 | 直到手动清除 |
+| 指数成分股 | 1天 | 每日更新 |
+| 实时行情 | 不缓存 | 始终最新 |
+| 财务报表 | 90天 | 季度更新 |
 
-## Data Source Comparison
+## 数据源对比
 
-| Feature | Efinance | Akshare | Database |
-|---------|----------|---------|----------|
-| A-share K-line | ✅ Fast | ✅ Reliable | ✅ Cached |
-| ETF data | ✅ | ✅ | ✅ |
-| HK stocks | ✅ | ✅ | ✅ |
-| Financial reports | ❌ | ✅ | ✅ Cached |
-| Index constituents | ❌ | ✅ | ✅ Cached |
-| Industry data | ❌ | ✅ | ✅ Cached |
-| Futures basis | ❌ | ✅ | ❌ |
-| Options IV | ❌ | ✅ | ❌ |
-| Real-time quotes | ✅ | ⚠️ (blocked often) | ❌ |
+| 功能 | Efinance | Akshare | 数据库 |
+|------|----------|---------|--------|
+| A股K线 | ✅ 快 | ✅ 可靠 | ✅ 已缓存 |
+| ETF数据 | ✅ | ✅ | ✅ |
+| 港股 | ✅ | ✅ | ✅ |
+| 财务报表 | ❌ | ✅ | ✅ 已缓存 |
+| 指数成分股 | ❌ | ✅ | ✅ 已缓存 |
+| 行业数据 | ❌ | ✅ | ✅ 已缓存 |
+| 期货贴水 | ❌ | ✅ | ❌ |
+| 期权IV | ❌ | ✅ | ❌ |
+| 实时行情 | ✅ | ⚠️（常被阻） | ❌ |
 
-## Fallback Behavior
+## 降级行为
 
-### Scenario 1: Efinance succeeds
+### 场景1：Efinance成功
 ```
-User requests 600519 data
+用户请求600519数据
     ↓
-EfinanceFetcher succeeds in 0.5s
+EfinanceFetcher 0.5秒内成功
     ↓
-Return data (fast path)
-```
-
-### Scenario 2: Efinance fails, Akshare succeeds
-```
-User requests 600519 data
-    ↓
-EfinanceFetcher fails (timeout)
-    ↓
-Wait 2s, try AkshareFetcher
-    ↓
-Akshare succeeds in 1s
-    ↓
-Return data (3s total)
+返回数据（快速路径）
 ```
 
-### Scenario 3: All sources fail
+### 场景2：Efinance失败，Akshare成功
 ```
-User requests 600519 data
+用户请求600519数据
     ↓
-Efinance fails → Akshare fails
+EfinanceFetcher 失败（超时）
     ↓
-Check database cache
+等待2秒，尝试AkshareFetcher
     ↓
-If cache exists: Return cached data
-If no cache: Raise DataFetchError
+Akshare 1秒内成功
+    ↓
+返回数据（总计3秒）
 ```
 
-## Network and Proxy Handling
+### 场景3：所有源失败
+```
+用户请求600519数据
+    ↓
+Efinance失败 → Akshare失败
+    ↓
+检查数据库缓存
+    ↓
+如有缓存：返回缓存数据
+如无缓存：抛出DataFetchError
+```
 
-### Automatic Proxy Bypass
+## 网络和代理处理
 
-Both fetchers automatically clear proxy settings to avoid connection issues:
+### 自动代理绕过
+
+两个fetcher都自动清除代理设置以避免连接问题：
 
 ```python
 os.environ['HTTP_PROXY'] = ''
@@ -145,107 +145,107 @@ os.environ['http_proxy'] = ''
 os.environ['https_proxy'] = ''
 ```
 
-### Connection Error Handling
+### 连接错误处理
 
-Common errors and handling:
+常见错误和处理：
 
-| Error | Cause | Handling |
-|-------|-------|----------|
-| Timeout | Network slow | Retry with exponential backoff |
-| Connection refused | Proxy/firewall | Clear proxy, retry |
-| SSLError | Certificate issues | Log warning, try alternative source |
-| Rate limit | Too many requests | Sleep 5-10s, retry |
-| Empty response | API change | Log error, try next source |
+| 错误 | 原因 | 处理 |
+|------|------|------|
+| 超时 | 网络慢 | 指数退避重试 |
+| 连接拒绝 | 代理/防火墙 | 清除代理，重试 |
+| SSLError | 证书问题 | 记录警告，尝试备用源 |
+| 速率限制 | 请求过多 | 休眠5-10秒，重试 |
+| 空响应 | API变更 | 记录错误，尝试下一源 |
 
-## Adding a New Data Source
+## 添加新数据源
 
-To add BaostockFetcher (example):
+添加BaostockFetcher示例：
 
 ```python
-# In data_provider/baostock_fetcher.py
+# 在 data_provider/baostock_fetcher.py
 from .base import BaseFetcher
 
 class BaostockFetcher(BaseFetcher):
     name = "BaostockFetcher"
-    priority = 2  # Lower priority than efinance/akshare
+    priority = 2  # 优先级低于efinance/akshare
     
     def _fetch_raw_data(self, stock_code, start_date, end_date):
-        # Implement baostock-specific fetching
+        # 实现baostock特定获取
         pass
     
     def _normalize_data(self, df, stock_code):
-        # Convert baostock columns to standard format
+        # 转换baostock列为标准格式
         pass
     
-    # Implement other abstract methods...
+    # 实现其他抽象方法...
 ```
 
-Register in `DataFetcherManager._init_default_fetchers()`:
+在 `DataFetcherManager._init_default_fetchers()` 中注册：
 
 ```python
 try:
     from .baostock_fetcher import BaostockFetcher
     self._fetchers.append(BaostockFetcher())
 except Exception as e:
-    logger.debug(f"BaostockFetcher unavailable: {e}")
+    logger.debug(f"BaostockFetcher不可用: {e}")
 ```
 
-## Data Quality Indicators
+## 数据质量指标
 
-Each data response includes source information:
+每个数据响应包含源信息：
 
 ```python
 {
     'success': True,
     'code': '600519',
-    'data_source': 'EfinanceFetcher',  # or 'AkshareFetcher'
+    'data_source': 'EfinanceFetcher',  # 或 'AkshareFetcher'
     'daily_data': [...]
 }
 ```
 
-Use this to:
-- Monitor which sources are working
-- Identify data quality issues
-- Optimize priority order
+用于：
+- 监控哪些源在工作
+- 识别数据质量问题
+- 优化优先级顺序
 
-## Preloading Strategy
+## 预加载策略
 
-To optimize screening performance, preload data after market close:
+为优化筛选性能，收盘后预加载数据：
 
 ```python
 from skills.stockton.scripts.preload_data import preload_index_data
 
-# Preload major indices
+# 预加载主要指数
 preload_index_data(['沪深300', '中证500', '中证1000'], days=130)
 ```
 
-**Why 130 days?**
-- 60 days: Short-term trend analysis
-- 120 days: Momentum calculation (20d, 60d, 120d)
-- 130 days: Buffer for weekends/holidays
+**为何130天？**
+- 60天：短期趋势分析
+- 120天：动量计算（20日、60日、120日）
+- 130天：周末/假期缓冲
 
-**Best time to run:**
-- After market close (15:30 CN time)
-- Before next market open (09:15 CN time)
-- Recommended: 19:00-21:00 daily
+**最佳运行时间：**
+- 收盘后（15:30 北京时间）
+- 次日开盘前（09:15 北京时间）
+- 推荐：每日19:00-21:00
 
-## Offline Mode
+## 离线模式
 
-If all external sources fail, skill can operate in limited offline mode using database cache:
+如所有外部源失败，工具可使用数据库缓存以有限的离线模式运行：
 
 ```python
-# Check if data exists in cache
+# 检查数据是否在缓存中
 db = get_db()
 if db.has_today_data('600519'):
-    # Use cached data
+    # 使用缓存数据
     data = db.get_analysis_context('600519')
 else:
-    # Raise error - no network and no cache
-    raise DataFetchError("No network and no cached data")
+    # 报错 - 无网络且无缓存
+    raise DataFetchError("无网络且无缓存数据")
 ```
 
-**Limitations in offline mode:**
-- Real-time quotes unavailable
-- Market overview unavailable
-- Index constituent updates unavailable
-- Historical data only (up to last cache date)
+**离线模式限制：**
+- 实时行情不可用
+- 市场概览不可用
+- 指数成分股更新不可用
+- 仅历史数据（至最后缓存日期）

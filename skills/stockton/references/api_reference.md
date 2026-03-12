@@ -1,20 +1,20 @@
-# Stockton API Reference
+# Stockton API 参考文档
 
-Complete API documentation for all modules.
+所有模块的完整 API 文档。
 
-## Data Fetcher Module
+## 数据获取模块
 
 ### `get_stock_data(stock_code, days=60, start_date=None, end_date=None)`
 
-Get historical stock data with technical indicators.
+获取带技术指标的历史股票数据。
 
-**Parameters:**
-- `stock_code` (str): Stock code (e.g., '600519', '000001')
-- `days` (int): Number of days to fetch (default: 60)
-- `start_date` (str, optional): Start date 'YYYY-MM-DD'
-- `end_date` (str, optional): End date 'YYYY-MM-DD'
+**参数：**
+- `stock_code` (str)：股票代码（如 '600519', '000001'）
+- `days` (int)：获取天数（默认：60）
+- `start_date` (str, 可选)：开始日期 'YYYY-MM-DD'
+- `end_date` (str, 可选)：结束日期 'YYYY-MM-DD'
 
-**Returns:**
+**返回：**
 ```python
 {
     'success': True,
@@ -22,50 +22,50 @@ Get historical stock data with technical indicators.
     'name': '贵州茅台',
     'daily_data': [...],
     'data_source': 'EfinanceFetcher',
-    'realtime_quote': {...}  # Optional
+    'realtime_quote': {...}  # 可选
 }
 ```
 
 ### `get_stock_data_for_llm(stock_code, days=60, format_type="prompt")`
 
-Get stock data formatted for LLM consumption.
+获取格式化为 LLM 可读的股票数据。
 
-**Parameters:**
-- `format_type` (str): "prompt" or "json"
+**参数：**
+- `format_type` (str)："prompt" 或 "json"
 
-**Returns:** Formatted string for LLM.
+**返回：** 格式化后的字符串。
 
-## Stock Analyzer Module
+## 股票分析模块
 
 ### `analyze_for_llm(stock_code, days=60)`
 
-Analyze stock trend and generate LLM-formatted report.
+分析股票趋势并生成 LLM 格式的报告。
 
-**Analysis includes:**
-- Price trend (up/down)
-- Moving averages (MA5/MA10/MA20)
-- Volume ratio
-- Chip distribution (if available)
-- Trading signals
+**分析内容：**
+- 价格趋势（涨/跌）
+- 移动平均线（MA5/MA10/MA20）
+- 量比
+- 筹码分布（如有）
+- 交易信号
 
-**Signals:**
-- `buy`: Price > MA5 > MA10 > MA20, Volume ratio > 1.5
-- `strong_buy`: All buy conditions + price breakout
-- `hold`: Price between MA10 and MA20
-- `sell`: Price < MA20
+**信号说明：**
+- `buy`（买入）：价格 > MA5 > MA10 > MA20，量比 > 1.5
+- `strong_buy`（强烈买入）：所有买入条件 + 价格突破
+- `hold`（持有）：价格在MA10和MA20之间
+- `sell`（卖出）：价格 < MA20
 
-## Financial Analyzer Module
+## 财务分析模块
 
 ### `analyze_financial(stock_code, format_type="dict")`
 
-Analyze financial health of a company.
+分析公司财务健康状况。
 
-**Returns:**
+**返回：**
 ```python
 {
     'stock_code': '600519',
     'stock_name': '贵州茅台',
-    'health_score': 85,  # 0-100
+    'health_score': 85,  # 0-100分
     'profitability': {
         'roe': 25.5,
         'gross_margin': 91.5,
@@ -86,48 +86,48 @@ Analyze financial health of a company.
 }
 ```
 
-**Health Score Calculation:**
-- Profitability: 0-25 points (ROE, margins)
-- Growth: 0-25 points (revenue/profit growth)
-- Safety: 0-20 points (debt, current ratio)
-- Valuation: 0-20 points (PE, PB ratios)
-- Bonus: 0-10 points (consistent performance)
+**健康评分计算：**
+- 盈利能力：0-25分（ROE、毛利率）
+- 成长能力：0-25分（营收/利润增长）
+- 财务安全：0-20分（负债、流动比率）
+- 估值：0-20分（PE、PB）
+- 额外：0-10分（持续表现）
 
-## Stock Screener Module
+## 股票筛选模块
 
 ### `screen_stocks(strategy='value', top_n=20, market='A股')`
 
-Screen stocks using preset strategies.
+使用预设策略筛选股票。
 
-**Strategies:**
+**策略说明：**
 
-| Strategy | Criteria | Use Case |
-|----------|----------|----------|
-| `value` | PE<20, PB<2, Dividend>2%, ROE>10% | Conservative investors |
-| `growth` | Revenue growth>20%, Profit growth>20%, ROE>15% | Growth investors |
-| `quality` | ROE>15%, Debt<40%, Gross margin>30% | Quality-focused |
-| `blue_chip` | Market cap>50B, PE<25, Dividend>2% | Dividend investors |
-| `small_cap_growth` | Market cap<20B, Revenue>30%, Profit>30% | High-risk/high-reward |
-| `momentum` | 20d return>10%, 60d return>15%, Above MA20 | Trend followers |
-| `dual_momentum` | Absolute momentum + Quality filter | Momentum investors |
+| 策略 | 标准 | 适用场景 |
+|------|------|---------|
+| `value`（价值） | PE<20, PB<2, 股息率>2%, ROE>10% | 保守型投资者 |
+| `growth`（成长） | 营收增长>20%, 利润增长>20%, ROE>15% | 进取型投资者 |
+| `quality`（质量） | ROE>15%, 负债<40%, 毛利率>30% | 质量导向型 |
+| `blue_chip`（蓝筹） | 市值>500亿, PE<25, 股息率>2%, ROE>12% | 分红型投资者 |
+| `small_cap_growth`（小盘成长） | 市值<200亿, 营收>30%, 利润>30% | 高风险高回报 |
+| `momentum`（动量） | 20日涨幅>10%, 60日涨幅>15%, 价格>MA20 | 趋势跟踪 |
+| `dual_momentum`（双动量） | 绝对动量+质量过滤 | 动量投资者 |
 
 ### `screen_stocks_advanced(strategy='value', index_name=None, industry=None, top_n=20)`
 
-Advanced screening with index/industry filters.
+高级筛选，支持指数/行业过滤。
 
-**Index Options:**
-- `沪深300` (CSI300): Large-cap blue chips
-- `中证500` (CSI500): Mid-cap growth
-- `中证1000` (CSI1000): Small-cap
-- `上证50` (SSE50): Mega-cap
+**指数选项：**
+- `沪深300`：大盘蓝筹
+- `中证500`：中盘成长
+- `中证1000`：小盘成长
+- `上证50`：超大盘
 
-## Market Analyzer Module
+## 市场分析模块
 
 ### `get_market_overview(format_type="dict")`
 
-Get comprehensive market overview.
+获取全面的市场概览。
 
-**Returns:**
+**返回：**
 ```python
 {
     'indices': {
@@ -153,42 +153,42 @@ Get comprehensive market overview.
 
 ### `analyze_market_for_llm()`
 
-Generate LLM-formatted market analysis including:
-- Index performance summary
-- Market sentiment (bullish/bearish/neutral)
-- Sector performance (top 5 gainers/losers)
-- Futures basis interpretation
-- IV level analysis
+生成 LLM 格式的市场分析，包含：
+- 指数表现摘要
+- 市场情绪（牛/熊/中性）
+- 板块表现（前5涨跌）
+- 期货贴水解读
+- IV水平分析
 
-## Data Preloading Module
+## 数据预加载模块
 
 ### `preload_index_data(indices=['沪深300', '中证500'], days=60)`
 
-Preload historical data for index constituents.
+预加载指数成分股的历史数据。
 
-**Use case:** Run after market close to prepare for next day's analysis.
+**使用场景：** 收盘后运行，为次日分析做准备。
 
-**Example:**
+**示例：**
 ```python
 from skills.stockton.scripts.preload_data import preload_index_data
 
 result = preload_index_data(['沪深300', '中证500'], days=60)
-print(f"Loaded {result['success_count']} stocks")
+print(f"成功加载 {result['success_count']} 只股票")
 ```
 
-## Database Storage Module
+## 数据库存储模块
 
 ### `get_db()`
 
-Get database manager instance for direct access.
+获取数据库管理器实例用于直接访问。
 
-**Features:**
-- Automatic caching of historical data
-- Index constituent caching
-- Stock name lookup
-- Technical indicator storage
+**功能：**
+- 自动缓存历史数据
+- 缓存指数成分股
+- 股票名称查询
+- 技术指标存储
 
-**Example:**
+**示例：**
 ```python
 from skills.stockton.scripts.storage import get_db
 
@@ -198,19 +198,19 @@ momentum = db.get_momentum_data('600519')
 tech_data = db.get_latest_tech_data('600519')
 ```
 
-## Error Handling
+## 错误处理
 
-All functions return structured error responses:
+所有函数返回结构化错误响应：
 
 ```python
 {
     'success': False,
-    'error_message': 'Description of what went wrong',
+    'error_message': '错误描述',
     'code': '600519'
 }
 ```
 
-Common error codes:
-- `DataFetchError`: Network or data source issues
-- `RateLimitError`: Too many requests
-- `DataSourceUnavailableError`: All data sources failed
+常见错误代码：
+- `DataFetchError`：网络或数据源问题
+- `RateLimitError`：请求过多
+- `DataSourceUnavailableError`：所有数据源失败

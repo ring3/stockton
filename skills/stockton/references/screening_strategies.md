@@ -1,277 +1,277 @@
-# Screening Strategies Reference
+# 选股策略参考
 
-Detailed explanation of all preset screening strategies.
+所有预设筛选策略的详细说明。
 
-## Strategy Categories
+## 策略分类
 
-### 1. Value Strategies
+### 1. 价值策略
 
-Focus: Undervalued stocks with strong fundamentals
+重点：低估值 + 强基本面
 
-#### `value` - Classic Value
+#### `value`（经典价值）
 
-**Criteria:**
+**标准：**
 - PE < 20
 - PB < 2
-- Dividend yield > 2%
+- 股息率 > 2%
 - ROE > 10%
-- Debt ratio < 60%
+- 负债率 < 60%
 
-**Rationale:** 
-Benjamin Graham-style value investing. Look for companies trading below intrinsic value with adequate quality filters.
+**逻辑：**
+本杰明·格雷厄姆式价值投资。寻找低于内在价值交易且有足够质量过滤的公司。
 
-**When to use:**
-- Bear markets or market corrections
-- Late economic cycle
-- Risk-off environments
-- Building defensive portfolios
+**适用场景：**
+- 熊市或市场回调
+- 经济周期末期
+- 风险规避环境
+- 构建防御性组合
 
-**Expected output:** 20-50 stocks from full market, 5-15 from CSI300
+**预期结果：** 全市场20-50只，沪深300中5-15只
 
-### 2. Growth Strategies
+### 2. 成长策略
 
-Focus: High-growth companies
+重点：高成长公司
 
-#### `growth` - High Growth
+#### `growth`（高成长）
 
-**Criteria:**
-- Revenue growth > 20%
-- Profit growth > 20%
+**标准：**
+- 营收增长 > 20%
+- 利润增长 > 20%
 - ROE > 15%
-- Debt ratio < 50%
+- 负债率 < 50%
 
-**Rationale:**
-Focus on companies with strong revenue and profit momentum. Quality filters (ROE, debt) avoid speculative growth.
+**逻辑：**
+关注营收和利润增长强劲的公司。质量过滤（ROE、负债）避免投机性成长。
 
-**When to use:**
-- Early-mid economic cycle
-- Bull markets
-- Risk-on environments
-- Building aggressive portfolios
+**适用场景：**
+- 经济周期早期-中期
+- 牛市
+- 风险偏好环境
+- 构建进取型组合
 
-#### `small_cap_growth` - Small Cap Growth
+#### `small_cap_growth`（小盘成长）
 
-**Criteria:**
-- Market cap < 20 billion CNY
-- Revenue growth > 30%
-- Profit growth > 30%
+**标准：**
+- 市值 < 200亿人民币
+- 营收增长 > 30%
+- 利润增长 > 30%
 - ROE > 10%
 
-**Rationale:**
-Small caps have higher growth potential but also higher risk. Strict growth criteria compensate for lower liquidity.
+**逻辑：**
+小盘股成长潜力更高但风险也更大。严格的成长标准补偿较低的流动性。
 
-**When to use:**
-- Strong bull markets
-- Liquidity abundant environments
-- High risk tolerance
+**适用场景：**
+- 强牛市
+- 流动性充裕环境
+- 高风险承受能力
 
-**Risk warning:** Small caps can be illiquid and volatile
+**风险提示：** 小盘股可能流动性差、波动大
 
-### 3. Quality Strategies
+### 3. 质量策略
 
-Focus: High-quality businesses
+重点：高质量企业
 
-#### `quality` - Quality Factor
+#### `quality`（质量因子）
 
-**Criteria:**
+**标准：**
 - ROE > 15%
-- Debt ratio < 40%
-- Gross margin > 30%
-- Current ratio > 1.5
+- 负债率 < 40%
+- 毛利率 > 30%
+- 流动比率 > 1.5
 
-**Rationale:**
-Warren Buffett-style quality investing. Focus on companies with durable competitive advantages (high margins) and strong balance sheets.
+**逻辑：**
+巴菲特式质量投资。关注具有持久竞争优势（高毛利率）和强健资产负债表的公司。
 
-**When to use:**
-- Core portfolio construction
-- Any market condition
-- Long-term holdings
+**适用场景：**
+- 核心组合构建
+- 任何市场条件
+- 长期持有
 
-### 4. Blue Chip Strategies
+### 4. 蓝筹策略
 
-Focus: Large-cap dividend stocks
+重点：大盘分红股
 
-#### `blue_chip` - Blue Chip Dividend
+#### `blue_chip`（蓝筹分红）
 
-**Criteria:**
-- Market cap > 50 billion CNY
+**标准：**
+- 市值 > 500亿人民币
 - PE < 25
 - PB < 3
 - ROE > 12%
-- Dividend yield > 2%
+- 股息率 > 2%
 
-**Rationale:**
-Large-cap stocks with consistent dividends provide stability and income. Quality filters ensure sustainability.
+**逻辑：**
+持续分红的大盘股提供稳定性和收入。质量过滤确保可持续性。
 
-**When to use:**
-- Conservative portfolios
-- Income-focused strategies
-- Market uncertainty
+**适用场景：**
+- 保守型组合
+- 收入导向策略
+- 市场不确定性
 
-### 5. Momentum Strategies
+### 5. 动量策略
 
-Focus: Trend-following
+重点：趋势跟踪
 
-#### `momentum` - Price Momentum
+#### `momentum`（价格动量）
 
-**Criteria:**
-- 20-day return > 10%
-- 60-day return > 15%
-- Price above MA20
-- Volume ratio > 1.0
+**标准：**
+- 20日收益率 > 10%
+- 60日收益率 > 15%
+- 价格在MA20之上
+- 量比 > 1.0
 
-**Scoring:**
-- 20-day momentum: +10 points (strong), +7 (good), +5 (moderate)
-- 60-day momentum: +10 points (strong), +7 (good), +5 (moderate)
-- Trend consistency: +5 points
+**评分：**
+- 20日动量：+10分（强）、+7（好）、+5（中等）
+- 60日动量：+10分（强）、+7（好）、+5（中等）
+- 趋势一致性：+5分
 
-**Rationale:**
-Trend-following strategy based on "momentum effect" - stocks that have performed well tend to continue performing well in short term.
+**逻辑：**
+基于"动量效应"的趋势跟踪策略——表现好的股票在短期内往往继续表现好。
 
-**When to use:**
-- Strong trending markets
-- Breakout confirmations
-- Short-term trading
+**适用场景：**
+- 强趋势市场
+- 突破确认
+- 短期交易
 
-**Risk warning:** Momentum can reverse quickly; use stop losses
+**风险提示：** 动量可能快速反转；使用止损
 
-#### `dual_momentum` - Dual Momentum (Absolute + Relative)
+#### `dual_momentum`（双动量：绝对+相对）
 
-**Criteria:**
-- 20-day return > 5% (absolute momentum)
-- 60-day return > 10% (absolute momentum)
-- Both returns positive (trend confirmation)
-- ROE > 8% (quality filter)
-- Debt ratio < 60% (safety filter)
+**标准：**
+- 20日收益率 > 5%（绝对动量）
+- 60日收益率 > 10%（绝对动量）
+- 两期均为正（趋势确认）
+- ROE > 8%（质量过滤）
+- 负债率 < 60%（安全过滤）
 
-**Scoring:**
-Same as momentum strategy, plus quality bonus.
+**评分：**
+与动量策略相同，加质量奖励。
 
-**Rationale:**
-Gary Antonacci's dual momentum concept:
-1. **Absolute momentum:** Only invest in assets with positive trend
-2. **Relative momentum:** Select strongest performers
-3. **Quality filter:** Avoid momentum traps (low-quality junk rallies)
+**逻辑：**
+Gary Antonacci 的双动量概念：
+1. **绝对动量：** 只投资具有正趋势的资产
+2. **相对动量：** 选择最强表现者
+3. **质量过滤：** 避免动量陷阱（低质量垃圾股反弹）
 
-**When to use:**
-- Best for tactical allocation
-- Can be used for market timing (cash when no qualifiers)
-- Reduces drawdowns vs pure momentum
+**适用场景：**
+- 最适合战术配置
+- 可用于市场择时（无符合条件时持币）
+- 降低回撤 vs 纯动量
 
-**Expected behavior:**
-- Strong bull markets: Many qualifiers, high returns
-- Weak/flat markets: Few/no qualifiers, preserves capital
-- Bear markets: Zero qualifiers (all filtered out by absolute momentum)
+**预期行为：**
+- 强牛市：多个符合条件，高回报
+- 弱/横盘市：很少/无符合条件，保存资本
+- 熊市：零符合条件（被绝对动量过滤）
 
-## Multi-Factor Scoring
+## 多因子评分
 
-All strategies use multi-factor scoring (0-120 points):
+所有策略使用多因子评分（0-120分）：
 
-### Financial Score (0-70 points)
+### 财务评分（0-70分）
 
-**Profitability (0-25):**
-- ROE > 20%: +10
-- ROE 15-20%: +8
-- ROE 10-15%: +6
-- ROE 8-10%: +4
+**盈利能力（0-25）：**
+- ROE > 20%：+10
+- ROE 15-20%：+8
+- ROE 10-15%：+6
+- ROE 8-10%：+4
 
-**Growth (0-25):**
-- Revenue growth > 30%: +10
-- Revenue growth 20-30%: +8
-- Profit growth > 30%: +10
-- Profit growth 20-30%: +8
+**成长（0-25）：**
+- 营收增长 > 30%：+10
+- 营收增长 20-30%：+8
+- 利润增长 > 30%：+10
+- 利润增长 20-30%：+8
 
-**Safety (0-20):**
-- Debt ratio < 40%: +10
-- Debt ratio 40-50%: +6
-- Current ratio > 2: +10
-- Current ratio 1.5-2: +6
+**安全（0-20）：**
+- 负债率 < 40%：+10
+- 负债率 40-50%：+6
+- 流动比率 > 2：+10
+- 流动比率 1.5-2：+6
 
-### Technical Score (0-50 points)
+### 技术评分（0-50分）
 
-**Momentum (0-30):**
-- 20-day return > 20%: +10
-- 20-day return 10-20%: +7
-- 60-day return > 30%: +10
-- 60-day return 15-30%: +7
-- 120-day return > 50%: +5
-- Trend consistency: +5
+**动量（0-30）：**
+- 20日收益 > 20%：+10
+- 20日收益 10-20%：+7
+- 60日收益 > 30%：+10
+- 60日收益 15-30%：+7
+- 120日收益 > 50%：+5
+- 趋势一致性：+5
 
-**Technical Pattern (0-20):**
-- Bullish arrangement (MA5>MA10>MA20): +15
-- Price > MA20 by 5%: +10
-- Volume ratio > 2: +10
+**技术形态（0-20）：**
+- 多头排列（MA5>MA10>MA20）：+15
+- 价格 > MA20 5%：+10
+- 量比 > 2：+10
 
-## Combining Strategies
+## 策略组合
 
-### Portfolio Construction Example
+### 组合构建示例
 
-**Conservative (60% value + 40% quality):**
+**保守型（60%价值+40%质量）：**
 ```python
 value_stocks = screen_stocks(strategy='value', top_n=15)
 quality_stocks = screen_stocks(strategy='quality', top_n=10)
 ```
 
-**Balanced (40% value + 30% growth + 30% quality):**
+**平衡型（40%价值+30%成长+30%质量）：**
 ```python
 value = screen_stocks(strategy='value', top_n=10)
 growth = screen_stocks(strategy='growth', top_n=8)
 quality = screen_stocks(strategy='quality', top_n=8)
 ```
 
-**Aggressive (50% growth + 30% momentum + 20% small_cap):**
+**进取型（50%成长+30%动量+20%小盘）：**
 ```python
 growth = screen_stocks(strategy='growth', top_n=10)
 momentum = screen_stocks(strategy='momentum', top_n=6)
 small_cap = screen_stocks(strategy='small_cap_growth', top_n=4)
 ```
 
-## Custom Screening
+## 自定义筛选
 
-Create custom criteria:
+创建自定义标准：
 
 ```python
 from skills.stockton.scripts.stock_screener import ScreenCriteria
 
 criteria = ScreenCriteria(
-    pe_max=15,              # Deep value
+    pe_max=15,              # 深度价值
     pb_max=1.5,
     roe_min=12,
-    revenue_growth_min=10,  # Some growth
-    market_cap_min=100,     # Mid-cap+
-    momentum_60d_min=10     # With momentum
+    revenue_growth_min=10,  # 有一定成长
+    market_cap_min=100,     # 中盘+
+    momentum_60d_min=10     # 有动量
 )
 
 results = screen_by_criteria(criteria, top_n=20)
 ```
 
-## Index-Based Screening
+## 指数内筛选
 
-Screen within specific indices for higher quality:
+在特定指数内筛选以获得更高质量：
 
 ```python
-# Large-cap value
+# 大盘价值
 screen_stocks_advanced(strategy='value', index_name='沪深300', top_n=10)
 
-# Mid-cap growth
+# 中盘成长
 screen_stocks_advanced(strategy='growth', index_name='中证500', top_n=10)
 
-# Small-cap momentum
+# 小盘动量
 screen_stocks_advanced(strategy='momentum', index_name='中证1000', top_n=10)
 ```
 
-## Backtesting Considerations
+## 回测考虑
 
-**Rebalancing frequency:**
-- Momentum strategies: Weekly (momentum decays quickly)
-- Growth strategies: Monthly
-- Value strategies: Quarterly (value takes time)
+**调仓频率：**
+- 动量策略：每周（动量衰减快）
+- 成长策略：每月
+- 价值策略：每季度（价值需要时间）
 
-**Transaction costs:**
-- Small-cap strategies: Higher costs due to lower liquidity
-- Momentum strategies: Higher turnover = higher costs
+**交易成本：**
+- 小盘策略：因流动性低，成本更高
+- 动量策略：换手率高 = 成本高
 
-**Market regime dependency:**
-- Momentum works best in trending markets
-- Value works best in recovery phases
-- Quality works in all markets but outperforms in downturns
+**市场状态依赖：**
+- 动量最适合趋势市场
+- 价值最适合复苏阶段
+- 质量在任何市场都有效，但在下跌时跑赢

@@ -1,92 +1,92 @@
-# Stock Analysis Report Template
+# 股票分析报告模板
 
-Use this template when formatting stock analysis output for LLM consumption.
+格式化股票分析输出供 LLM 阅读时使用的模板。
 
-## Individual Stock Analysis
-
-```markdown
-# {stock_name} ({stock_code}) Analysis Report
-
-## Executive Summary
-**Signal:** {buy/hold/sell} | **Score:** {score}/100 | **Trend:** {bullish/bearish/neutral}
-
-## Price Performance
-- **Current Price:** ¥{price:.2f}
-- **Change:** {change_pct:+.2f}%
-- **20-Day Return:** {momentum_20d:+.2f}%
-- **60-Day Return:** {momentum_60d:+.2f}%
-
-## Technical Analysis
-### Moving Averages
-- **MA5:** ¥{ma5:.2f} ({above/below} price)
-- **MA20:** ¥{ma20:.2f} ({support/resistance})
-- **MA60:** ¥{ma60:.2f} (trend: {up/down})
-
-### Trend Signals
-- **Arrangement:** {bullish_arrangement/MA_bearish/no_clear_trend}
-- **Volume Ratio:** {volume_ratio:.2f}x ({normal/elevated/high})
-
-## Fundamental Analysis
-### Profitability (Score: {score}/25)
-- **ROE:** {roe:.1f}% ({excellent/good/average})
-- **Gross Margin:** {gross_margin:.1f}%
-- **Net Margin:** {net_margin:.1f}%
-
-### Growth (Score: {score}/25)
-- **Revenue Growth:** {revenue_growth:+.1f}%
-- **Profit Growth:** {profit_growth:+.1f}%
-
-### Financial Safety (Score: {score}/20)
-- **Debt Ratio:** {debt_ratio:.1f}% ({safe/moderate/high})
-
-### Valuation (Score: {score}/20)
-- **PE Ratio:** {pe:.1f}x ({undervalued/fair/overvalued})
-- **PB Ratio:** {pb:.1f}x
-
-## Overall Health Score: {score}/100
-```
-
-## Market Overview Template
+## 个股分析报告
 
 ```markdown
-# A-Share Market Overview
+# {股票名称} ({股票代码}) 分析报告
 
-## Key Indices
-| Index | Price | Change | 
-|-------|-------|--------|
-| 上证指数 | {sh_price} | {sh_change:+.2f}% |
-| 深证成指 | {sz_price} | {sz_change:+.2f}% |
-| 创业板指 | {cy_price} | {cy_change:+.2f}% |
+## 执行摘要
+**信号:** {买入/持有/卖出} | **评分:** {评分}/100 | **趋势:** {看涨/看跌/中性}
 
-## Market Breadth
-- **Advancing:** {up_count} stocks
-- **Declining:** {down_count} stocks
-- **Limit Up:** {limit_up}
-- **Limit Down:** {limit_down}
+## 价格表现
+- **当前价格:** ¥{价格:.2f}
+- **涨跌:** {涨跌幅:+.2f}%
+- **20日收益:** {20日动量:+.2f}%
+- **60日收益:** {60日动量:+.2f}%
 
-## Futures Basis
-| Future | Basis | Annualized | 
-|--------|-------|------------|
-| IF (沪深300) | {if_basis:+.2f}% | {if_annual:+.2f}% |
-| IC (中证500) | {ic_basis:+.2f}% | {ic_annual:+.2f}% |
+## 技术分析
+### 移动平均线
+- **MA5:** ¥{ma5:.2f} ({高于/低于} 价格)
+- **MA20:** ¥{ma20:.2f} ({支撑/阻力})
+- **MA60:** ¥{ma60:.2f} (趋势: {向上/向下})
+
+### 趋势信号
+- **排列:** {多头排列/空头排列/无明显趋势}
+- **量比:** {量比:.2f}x ({正常/偏高/高})
+
+## 基本面分析
+### 盈利能力 (评分: {评分}/25)
+- **ROE:** {roe:.1f}% ({优秀/良好/一般})
+- **毛利率:** {毛利率:.1f}%
+- **净利率:** {净利率:.1f}%
+
+### 成长性 (评分: {评分}/25)
+- **营收增长:** {营收增长:+.1f}%
+- **利润增长:** {利润增长:+.1f}%
+
+### 财务安全 (评分: {评分}/20)
+- **负债率:** {负债率:.1f}% ({安全/中等/高})
+
+### 估值 (评分: {评分}/20)
+- **PE:** {pe:.1f}x ({低估/合理/高估})
+- **PB:** {pb:.1f}x
+
+## 综合健康评分: {评分}/100
 ```
 
-## Usage Notes
+## 市场概览模板
 
-### Formatting Guidelines
+```markdown
+# A股市场概览
 
-1. **Always include:** Date, data source
-2. **Round numbers:** 2 decimal places for prices, 1 for percentages
-3. **Color coding:** Use emojis for quick visual scanning
-   - 🟢 Positive/good
-   - 🟡 Neutral/moderate
-   - 🔴 Negative/poor
+## 主要指数
+| 指数 | 价格 | 涨跌 | 
+|------|------|------|
+| 上证指数 | {上证价格} | {上证涨跌:+.2f}% |
+| 深证成指 | {深证价格} | {深证涨跌:+.2f}% |
+| 创业板指 | {创业板价格} | {创业板涨跌:+.2f}% |
 
-### Example Disclaimers
+## 市场广度
+- **上涨:** {上涨家数} 只
+- **下跌:** {下跌家数} 只
+- **涨停:** {涨停数}
+- **跌停:** {跌停数}
+
+## 期货贴水
+| 期货 | 贴水 | 年化 | 
+|------|------|------|
+| IF (沪深300) | {if贴水:+.2f}% | {if年化:+.2f}% |
+| IC (中证500) | {ic贴水:+.2f}% | {ic年化:+.2f}% |
+```
+
+## 使用说明
+
+### 格式化指南
+
+1. **始终包含:** 日期、数据源
+2. **数字取整:** 价格保留2位小数，百分比保留1位
+3. **颜色编码:** 使用表情符号快速视觉识别
+   - 🟢 正面/好
+   - 🟡 中性/中等
+   - 🔴 负面/差
+
+### 免责声明示例
 
 ```markdown
 ---
-**Disclaimer:** This analysis is for informational purposes only.
-**Data Source:** {Efinance/Akshare/Cache}  
-**Last Updated:** {timestamp}
+**免责声明:** 本分析仅供信息参考。
+**数据源:** {Efinance/Akshare/缓存}  
+**最后更新:** {时间戳}
 ```
