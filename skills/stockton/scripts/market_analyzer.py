@@ -399,7 +399,7 @@ class MarketDataAnalyzer:
         try:
             logger.info("[大盘] 获取市场涨跌统计...")
             
-            # 通过 DataFetcherManager 获取全部A股实时行情
+            # 通过 DataFetcherManager 获取市场统计数据
             df, source_name = self._get_data_with_retry(
                 'get_market_overview',
                 "A股实时行情",
@@ -407,28 +407,39 @@ class MarketDataAnalyzer:
             )
             
             if df is not None and not df.empty:
-                # 涨跌统计（尝试不同的列名）
-                change_col = '涨跌幅' if '涨跌幅' in df.columns else 'change_pct'
-                if change_col in df.columns:
-                    df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
-                    overview.up_count = len(df[df[change_col] > 0])
-                    overview.down_count = len(df[df[change_col] < 0])
-                    overview.flat_count = len(df[df[change_col] == 0])
+                # 检查是否是新的预计算统计格式（单条记录，含'上涨家数'列）
+                if '上涨家数' in df.columns:
+                    # 使用预计算的统计数据（来自 stock_market_activity_legu）
+                    row = df.iloc[0]
+                    overview.up_count = int(row.get('上涨家数', 0))
+                    overview.down_count = int(row.get('下跌家数', 0))
+                    overview.flat_count = int(row.get('平盘家数', 0))
+                    overview.limit_up_count = int(row.get('涨停家数', 0))
+                    overview.limit_down_count = int(row.get('跌停家数', 0))
+                    # 成交额需要单独获取，此接口不包含
+                    overview.total_amount = 0.0
                     
-                    # 涨停跌停统计（涨跌幅 >= 9.9% 或 <= -9.9%）
-                    overview.limit_up_count = len(df[df[change_col] >= 9.9])
-                    overview.limit_down_count = len(df[df[change_col] <= -9.9])
-                
-                # 两市成交额
-                amount_col = '成交额' if '成交额' in df.columns else 'amount'
-                if amount_col in df.columns:
-                    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
-                    overview.total_amount = df[amount_col].sum() / 1e8  # 转为亿元
+                else:
+                    # 传统全量数据格式，需要计算统计
+                    change_col = '涨跌幅' if '涨跌幅' in df.columns else 'change_pct'
+                    if change_col in df.columns:
+                        df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
+                        overview.up_count = len(df[df[change_col] > 0])
+                        overview.down_count = len(df[df[change_col] < 0])
+                        overview.flat_count = len(df[df[change_col] == 0])
+                        overview.limit_up_count = len(df[df[change_col] >= 9.9])
+                        overview.limit_down_count = len(df[df[change_col] <= -9.9])
+                    
+                    # 两市成交额
+                    amount_col = '成交额' if '成交额' in df.columns else 'amount'
+                    if amount_col in df.columns:
+                        df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
+                        overview.total_amount = df[amount_col].sum() / 1e8
                 
                 logger.info(
                     f"[大盘] 从 {source_name} 获取: 涨:{overview.up_count} 跌:{overview.down_count} "
                     f"平:{overview.flat_count} 涨停:{overview.limit_up_count} "
-                    f"跌停:{overview.limit_down_count} 成交额:{overview.total_amount:.0f}亿"
+                    f"跌停:{overview.limit_down_count}"
                 )
                 
         except Exception as e:
