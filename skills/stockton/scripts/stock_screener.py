@@ -20,13 +20,27 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 导入数据库管理器
+# 导入数据库管理器（支持相对导入和绝对导入）
+_HAS_DB = False
+DatabaseManager = None
+
 try:
+    # 尝试相对导入（在包内使用时）
     from .storage import DatabaseManager
     _HAS_DB = True
 except ImportError:
-    _HAS_DB = False
-    DatabaseManager = None
+    try:
+        # 尝试绝对导入（独立脚本使用时）
+        from storage import DatabaseManager
+        _HAS_DB = True
+    except ImportError:
+        try:
+            # 尝试从 skills.stockton.scripts 导入
+            from skills.stockton.scripts.storage import DatabaseManager
+            _HAS_DB = True
+        except ImportError:
+            _HAS_DB = False
+            DatabaseManager = None
 
 
 class ScreenFactor(Enum):
@@ -269,7 +283,12 @@ class StockScreener:
         # 初始化数据源管理器（优先使用，替代直接akshare调用）
         self._data_manager = None
         try:
-            from .data_provider import DataFetcherManager
+            # 尝试相对导入（包内使用）
+            try:
+                from .data_provider import DataFetcherManager
+            except ImportError:
+                # 尝试绝对导入（独立脚本使用）
+                from data_provider import DataFetcherManager
             self._data_manager = DataFetcherManager()
             logger.debug("选股器已初始化数据源管理器")
         except Exception as e:
