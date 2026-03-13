@@ -118,6 +118,20 @@ class AkshareFetcher(BaseFetcher):
         os.environ['HTTPS_PROXY'] = ''
         os.environ['http_proxy'] = ''
         os.environ['https_proxy'] = ''
+        
+        # 设置 socket 默认超时，避免长时间阻塞
+        import socket
+        socket.setdefaulttimeout(10)  # 全局 socket 超时 10 秒
+        
+        # 设置 User-Agent，降低被识别为爬虫的概率
+        import urllib.request
+        opener = urllib.request.build_opener()
+        opener.addheaders = [
+            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+            ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'),
+            ('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8'),
+        ]
+        urllib.request.install_opener(opener)
 
         # 延迟导入 akshare
         try:
@@ -360,8 +374,24 @@ class AkshareFetcher(BaseFetcher):
             
             logger.info(f"[Akshare] 获取 {stock_code} 实时行情...")
             
-            # 使用 akshare 获取实时行情（东方财富）
-            df = self._ak.stock_zh_a_spot_em()
+            df = None
+            
+            # 首先尝试 Eastmoney 源
+            try:
+                df = self._ak.stock_zh_a_spot_em()
+                if df is not None and not df.empty:
+                    logger.debug(f"[Akshare] 通过 stock_zh_a_spot_em 获取实时行情")
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_zh_a_spot_em 失败: {e}，尝试备用源...")
+            
+            # Fallback: 使用通用实时行情（Sina 源）
+            if df is None or df.empty:
+                try:
+                    df = self._ak.stock_zh_a_spot()
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 stock_zh_a_spot (备用) 获取实时行情")
+                except Exception as e:
+                    logger.warning(f"[Akshare] stock_zh_a_spot 失败: {e}")
             
             if df is None or df.empty:
                 logger.warning(f"[Akshare] 实时行情返回空数据")
@@ -415,11 +445,40 @@ class AkshareFetcher(BaseFetcher):
         Returns:
             DataFrame 包含主要指数数据
         """
+        import concurrent.futures
+        
+        def fetch_with_timeout(func, timeout=10):
+            """带超时的获取函数"""
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(func)
+                try:
+                    return future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[Akshare] 获取指数行情超时({timeout}s)")
+                    return None
+        
         try:
             self._random_sleep()
             logger.info("[Akshare] 获取主要指数行情...")
             
-            df = self._ak.stock_zh_index_spot_sina()
+            df = None
+            
+            # 首先尝试 Sina 源（带超时）
+            try:
+                df = fetch_with_timeout(self._ak.stock_zh_index_spot_sina, timeout=15)
+                if df is not None and not df.empty:
+                    logger.debug(f"[Akshare] 通过 stock_zh_index_spot_sina 获取指数行情")
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_zh_index_spot_sina 失败: {e}，尝试备用源...")
+            
+            # Fallback: 使用 Eastmoney 源（带超时）
+            if df is None or df.empty:
+                try:
+                    df = fetch_with_timeout(self._ak.stock_zh_index_spot_em, timeout=15)
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 stock_zh_index_spot_em (备用) 获取指数行情")
+                except Exception as e:
+                    logger.warning(f"[Akshare] stock_zh_index_spot_em 失败: {e}")
             
             if df is None or df.empty:
                 return pd.DataFrame()
@@ -460,12 +519,25 @@ class AkshareFetcher(BaseFetcher):
             self._random_sleep()
             logger.info("[Akshare] 获取市场概览...")
             
-            df = self._ak.stock_zh_a_spot_em()
+            # 首先尝试 Eastmoney 源
+            try:
+                df = self._ak.stock_zh_a_spot_em()
+                if df is not None and not df.empty:
+                    logger.info(f"[Akshare] 通过 stock_zh_a_spot_em 获取到 {len(df)} 条数据")
+                    return df
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_zh_a_spot_em 失败: {e}，尝试备用源...")
             
-            if df is None or df.empty:
-                return pd.DataFrame()
+            # Fallback: 使用通用实时行情（Sina 源）
+            try:
+                df = self._ak.stock_zh_a_spot()
+                if df is not None and not df.empty:
+                    logger.info(f"[Akshare] 通过 stock_zh_a_spot (备用) 获取到 {len(df)} 条数据")
+                    return df
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_zh_a_spot 失败: {e}")
             
-            return df
+            return pd.DataFrame()
             
         except Exception as e:
             logger.error(f"[Akshare] 获取市场概览失败: {e}")
@@ -482,12 +554,25 @@ class AkshareFetcher(BaseFetcher):
             self._random_sleep()
             logger.info("[Akshare] 获取行业板块排行...")
             
-            df = self._ak.stock_board_industry_name_em()
+            # 首先尝试 Eastmoney 源
+            try:
+                df = self._ak.stock_board_industry_name_em()
+                if df is not None and not df.empty:
+                    logger.info(f"[Akshare] 通过 stock_board_industry_name_em 获取到 {len(df)} 条数据")
+                    return df
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_board_industry_name_em 失败: {e}，尝试备用源...")
             
-            if df is None or df.empty:
-                return pd.DataFrame()
+            # Fallback: 使用同花顺源
+            try:
+                df = self._ak.stock_board_industry_name_ths()
+                if df is not None and not df.empty:
+                    logger.info(f"[Akshare] 通过 stock_board_industry_name_ths (备用) 获取到 {len(df)} 条数据")
+                    return df
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_board_industry_name_ths 失败: {e}")
             
-            return df
+            return pd.DataFrame()
             
         except Exception as e:
             logger.error(f"[Akshare] 获取板块排行失败: {e}")
@@ -566,9 +651,23 @@ class AkshareFetcher(BaseFetcher):
             df_risk['strike'] = df_risk['code'].apply(parse_strike)
             
             # 获取期权行情数据（补充成交量、持仓量）
+            df_quote = None
+            
+            # 首先尝试 Eastmoney 源
             try:
                 df_quote = self._ak.option_current_em()
-                if df_quote is not None and not df_quote.empty:
+            except Exception as e:
+                logger.debug(f"[Akshare] option_current_em 失败: {e}，尝试备用源...")
+            
+            # Fallback: 使用 Sina 源
+            if df_quote is None or df_quote.empty:
+                try:
+                    df_quote = self._ak.option_sse_spot_price_sina()
+                except Exception as e:
+                    logger.debug(f"[Akshare] option_sse_spot_price_sina 失败: {e}")
+            
+            if df_quote is not None and not df_quote.empty:
+                try:
                     # 合并数据
                     if '代码' in df_quote.columns and 'code' in df_risk.columns:
                         df_quote = df_quote.rename(columns={'代码': 'code'})
@@ -578,8 +677,8 @@ class AkshareFetcher(BaseFetcher):
                             how='left'
                         )
                         df_risk = df_risk.rename(columns={'成交量': 'volume', '持仓量': 'open_interest'})
-            except Exception as e:
-                logger.debug(f"[Akshare] 获取期权行情失败: {e}")
+                except Exception as e:
+                    logger.debug(f"[Akshare] 合并期权数据失败: {e}")
             
             logger.info(f"[Akshare] 成功获取 {len(df_risk)} 条期权数据")
             return df_risk
@@ -676,6 +775,35 @@ class AkshareFetcher(BaseFetcher):
         - IM: 中证1000期货 -> 对应指数 000852
         - IH: 上证50期货 -> 对应指数 000016
         """
+        import concurrent.futures
+        
+        def fetch_index_data_with_timeout(timeout=10):
+            """带超时的获取指数数据"""
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                # 提交 Sina 源
+                future_sina = executor.submit(self._ak.stock_zh_index_spot_sina)
+                try:
+                    result = future_sina.result(timeout=timeout)
+                    if result is not None and not result.empty:
+                        return result, 'sina'
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[Akshare] 指数行情 Sina 源超时({timeout}s)")
+                except Exception as e:
+                    logger.debug(f"[Akshare] 指数行情 Sina 源失败: {e}")
+                
+                # Sina 失败，尝试 Eastmoney 源
+                try:
+                    future_em = executor.submit(self._ak.stock_zh_index_spot_em)
+                    result = future_em.result(timeout=timeout)
+                    if result is not None and not result.empty:
+                        return result, 'em'
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[Akshare] 指数行情 EM 源超时({timeout}s)")
+                except Exception as e:
+                    logger.debug(f"[Akshare] 指数行情 EM 源失败: {e}")
+                
+                return None, None
+        
         try:
             self._random_sleep()
             logger.info("[Akshare] 获取股指期货贴水数据...")
@@ -688,30 +816,41 @@ class AkshareFetcher(BaseFetcher):
                 {'futures_code': 'IH0', 'index_code': '000016', 'name': '上证50'},
             ]
             
+            # 先获取指数数据（只获取一次，带超时和fallback）
+            df_index, index_source = fetch_index_data_with_timeout(timeout=10)
+            if df_index is None or df_index.empty:
+                logger.error("[Akshare] 无法获取指数行情数据")
+                return pd.DataFrame()
+            
+            logger.info(f"[Akshare] 通过 {index_source} 源获取指数行情")
+            
             results = []
             
             for config in futures_config:
                 try:
-                    # 获取期货主力合约最新价格
-                    df_futures = self._ak.futures_main_sina(symbol=config['futures_code'])
+                    # 获取期货主力合约最新价格（带5秒超时）
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(self._ak.futures_main_sina, config['futures_code'])
+                        try:
+                            df_futures = future.result(timeout=5)
+                        except concurrent.futures.TimeoutError:
+                            logger.warning(f"[Akshare] {config['futures_code']} 期货数据获取超时(5s)")
+                            continue
                     if df_futures is None or df_futures.empty:
                         continue
                     
                     futures_price = df_futures['收盘价'].iloc[-1]
                     
-                    # 获取对应现货指数最新价格
-                    # 使用 akshare 的指数行情接口
-                    if config['index_code'].startswith('000'):
-                        # 上海指数
-                        df_index = self._ak.stock_zh_index_spot_sina()
-                        index_row = df_index[df_index['代码'] == f"sh{config['index_code']}"]
-                        if index_row.empty:
-                            index_row = df_index[df_index['代码'] == config['index_code']]
-                    else:
-                        df_index = self._ak.stock_zh_index_spot_sina()
+                    # 从已获取的指数数据中查找对应现货指数价格
+                    index_row = df_index[df_index['代码'] == f"sh{config['index_code']}"]
+                    if index_row.empty:
                         index_row = df_index[df_index['代码'] == config['index_code']]
+                    if index_row.empty:
+                        index_row = df_index[df_index['代码'] == f"sz{config['index_code']}"]
                     
                     if index_row.empty:
+                        logger.warning(f"[Akshare] 未找到指数 {config['index_code']} 数据")
                         continue
                     
                     index_price = float(index_row['最新价'].iloc[0])
@@ -813,17 +952,45 @@ class AkshareFetcher(BaseFetcher):
             self._random_sleep()
             logger.info(f"[Akshare] 获取 {market} 股票池...")
 
-            # 根据市场选择对应接口
-            if market == "沪市":
-                df = self._ak.stock_sh_a_spot_em()
-            elif market == "深市":
-                df = self._ak.stock_sz_a_spot_em()
-            elif market == "创业板":
-                df = self._ak.stock_cy_a_spot_em()
-            elif market == "科创板":
-                df = self._ak.stock_kc_a_spot_em()
-            else:  # A股全部
-                df = self._ak.stock_zh_a_spot_em()
+            df = None
+            
+            # 首先尝试 Eastmoney 源
+            try:
+                # 根据市场选择对应接口
+                if market == "沪市":
+                    df = self._ak.stock_sh_a_spot_em()
+                elif market == "深市":
+                    df = self._ak.stock_sz_a_spot_em()
+                elif market == "创业板":
+                    df = self._ak.stock_cy_a_spot_em()
+                elif market == "科创板":
+                    df = self._ak.stock_kc_a_spot_em()
+                else:  # A股全部
+                    df = self._ak.stock_zh_a_spot_em()
+                
+                if df is not None and not df.empty:
+                    logger.debug(f"[Akshare] 通过 Eastmoney 源获取 {market} 股票池")
+            except Exception as e:
+                logger.warning(f"[Akshare] Eastmoney 源失败: {e}，尝试备用源...")
+            
+            # Fallback: 使用通用实时行情（Sina 源）
+            if df is None or df.empty:
+                try:
+                    df = self._ak.stock_zh_a_spot()
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 Sina 源(备用)获取股票池")
+                        
+                        # 根据市场筛选
+                        if market == "沪市":
+                            df = df[df['代码'].str.startswith('6')]
+                        elif market == "深市":
+                            df = df[df['代码'].str.startswith(('0', '3'))]
+                        elif market == "创业板":
+                            df = df[df['代码'].str.startswith('3')]
+                        elif market == "科创板":
+                            df = df[df['代码'].str.startswith('68')]
+                except Exception as e:
+                    logger.warning(f"[Akshare] Sina 源失败: {e}")
 
             if df is not None and not df.empty:
                 # 标准化列名
@@ -884,7 +1051,17 @@ class AkshareFetcher(BaseFetcher):
 
             # 备选：从全市场筛选所属行业
             try:
-                df = self._ak.stock_zh_a_spot_em()
+                # 首先尝试 Eastmoney 源
+                df = None
+                try:
+                    df = self._ak.stock_zh_a_spot_em()
+                except Exception:
+                    pass
+                
+                # Fallback: 使用 Sina 源
+                if df is None or df.empty:
+                    df = self._ak.stock_zh_a_spot()
+                
                 if df is not None and not df.empty:
                     industry_stocks = df[df['所属行业'] == industry_name]
                     if not industry_stocks.empty:
@@ -911,12 +1088,32 @@ class AkshareFetcher(BaseFetcher):
             self._random_sleep()
             logger.info(f"[Akshare] 获取行业列表...")
 
-            df = self._ak.stock_board_industry_name_em()
+            df = None
+            
+            # 首先尝试 Eastmoney 源
+            try:
+                df = self._ak.stock_board_industry_name_em()
+                if df is not None and not df.empty:
+                    logger.debug(f"[Akshare] 通过 stock_board_industry_name_em 获取行业列表")
+            except Exception as e:
+                logger.warning(f"[Akshare] stock_board_industry_name_em 失败: {e}，尝试备用源...")
+            
+            # Fallback: 使用同花顺源
+            if df is None or df.empty:
+                try:
+                    df = self._ak.stock_board_industry_name_ths()
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 stock_board_industry_name_ths (备用) 获取行业列表")
+                except Exception as e:
+                    logger.warning(f"[Akshare] stock_board_industry_name_ths 失败: {e}")
 
             if df is not None and not df.empty:
-                # 标准化列名
+                # 标准化列名（Eastmoney）
                 if '板块名称' in df.columns:
                     df = df.rename(columns={'板块名称': 'name'})
+                # 标准化列名（THS）
+                if '行业名称' in df.columns:
+                    df = df.rename(columns={'行业名称': 'name'})
 
                 if 'name' in df.columns:
                     return df[['name']]

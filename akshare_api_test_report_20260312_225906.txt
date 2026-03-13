@@ -1,0 +1,162 @@
+======================================================================
+Akshare API Test Detailed Report
+======================================================================
+
+Test Time: 2026-03-12 22:59:06
+Total Tests: 24
+
+
+======================================================================
+API: stock_zh_a_spot_em (A-share real-time - Eastmoney)
+Status: blocked
+Duration: 5.9s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='82.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f12&fs=m%3A0+
+
+======================================================================
+API: stock_zh_a_spot (A-share real-time - General)
+Status: success
+Duration: 35.39s
+Data: 5488 rows
+
+======================================================================
+API: stock_sh_a_spot_em (Shanghai A-share)
+Status: blocked
+Duration: 6.02s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='82.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f12&fs=m%3A1+
+
+======================================================================
+API: stock_sz_a_spot_em (Shenzhen A-share)
+Status: blocked
+Duration: 5.15s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='82.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f12&fs=m%3A0+
+
+======================================================================
+API: stock_cy_a_spot_em (ChiNext A-share)
+Status: blocked
+Duration: 5.2s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='7.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0
+
+======================================================================
+API: stock_kc_a_spot_em (STAR Market A-share)
+Status: blocked
+Duration: 5.61s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='7.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0
+
+======================================================================
+API: stock_zh_index_spot_sina (Index real-time - Sina)
+Status: error
+Duration: 0.1s
+Error Type: OTHER_ERROR
+Error Msg: Can not decode value starting with character '<'
+
+======================================================================
+API: stock_zh_index_spot_em (Index real-time - Eastmoney)
+Status: blocked
+Duration: 5.75s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='48.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C
+
+======================================================================
+API: stock_zh_a_hist (A-share historical K-line)
+Status: success
+Duration: 0.04s
+Data: 36 rows
+
+======================================================================
+API: stock_hk_hist (HK stock historical)
+Status: success
+Duration: 0.19s
+Data: 39 rows
+
+======================================================================
+API: fund_etf_hist_em (ETF historical)
+Status: success
+Duration: 0.03s
+Data: 36 rows
+
+======================================================================
+API: stock_board_industry_name_em (Industry list - Eastmoney)
+Status: blocked
+Duration: 5.53s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='17.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m%3A90+
+
+======================================================================
+API: stock_board_industry_name_ths (Industry list - THS)
+Status: success
+Duration: 0.36s
+Data: 90 rows
+
+======================================================================
+API: stock_board_industry_cons_em (Industry constituents)
+Status: blocked
+Duration: 5.07s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='17.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m%3A90+
+
+======================================================================
+API: stock_board_concept_name_em (Concept board list)
+Status: blocked
+Duration: 5.17s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='79.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f12&fs=m%3A90
+
+======================================================================
+API: futures_main_sina (Futures main contract - Sina)
+Status: success
+Duration: 0.19s
+Data: 2218 rows
+
+======================================================================
+API: futures_zh_spot (Futures real-time)
+Status: error
+Duration: 0.12s
+Error Type: OTHER_ERROR
+Error Msg: Length mismatch: Expected axis has 1 elements, new values have 44 elements
+
+======================================================================
+API: index_stock_cons_weight_csindex (CSI Index constituents)
+Status: success
+Duration: 0.08s
+Data: 300 rows
+
+======================================================================
+API: option_risk_indicator_sse (Option risk indicators)
+Status: success
+Duration: 0.16s
+Data: 396 rows
+
+======================================================================
+API: option_current_em (Option real-time quotes)
+Status: blocked
+Duration: 6.09s
+Error Type: PROXY_BLOCKED
+Error Msg: HTTPSConnectionPool(host='23.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m%3A10%
+
+======================================================================
+API: option_sse_spot_price_sina (Option spot price - Sina)
+Status: success
+Duration: 0.1s
+Data: 1 rows
+
+======================================================================
+API: stock_cyq_em (Chip distribution - Eastmoney)
+Status: success
+Duration: 0.4s
+Data: 90 rows
+
+======================================================================
+API: stock_financial_report_sina (Financial report - Sina)
+Status: success
+Duration: 0.4s
+Data: 100 rows
+
+======================================================================
+API: stock_financial_analysis_indicator (Financial indicators)
+Status: empty
+Duration: 0.22s
