@@ -112,6 +112,10 @@ class AkshareFetcher(BaseFetcher):
         self.sleep_min = sleep_min
         self.sleep_max = sleep_max
         self._last_request_time: Optional[float] = None
+        
+        # 缓存存储 (method_name -> (timestamp, data))
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._cache_ttl: int = 300  # 缓存有效期 5 分钟
 
         # 禁用代理，避免连接问题
         os.environ['HTTP_PROXY'] = ''
@@ -160,6 +164,23 @@ class AkshareFetcher(BaseFetcher):
             'timeout', 'remote end closed', 'unable to connect', 'ssl', '443',
         ]
         return any(err in error_msg for err in connection_errors)
+
+    def _get_cache(self, key: str) -> Optional[Any]:
+        """获取缓存数据"""
+        if key in self._cache:
+            timestamp, data = self._cache[key]
+            if time.time() - timestamp < self._cache_ttl:
+                logger.debug(f"[Akshare] 使用缓存数据: {key}")
+                return data
+            else:
+                # 缓存过期
+                del self._cache[key]
+        return None
+    
+    def _set_cache(self, key: str, data: Any) -> None:
+        """设置缓存数据"""
+        self._cache[key] = (time.time(), data)
+        logger.debug(f"[Akshare] 缓存数据: {key}")
 
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -363,77 +384,165 @@ class AkshareFetcher(BaseFetcher):
         """
         获取实时行情数据
         
+        优化：使用个股专用接口替代全量接口，避免拉取 5000+ 条数据
+        - 主方案：stock_zh_a_hist (历史K线，含最新实时数据) + stock_individual_info_em (市值信息)
+        - Fallback：全量接口 (stock_zh_a_spot_em / stock_zh_a_spot)
+        
         Args:
             stock_code: 股票代码
             
         Returns:
             实时行情字典，获取失败返回 None
         """
+        from datetime import datetime, timedelta
+        
+        def safe_float(val, default=0.0):
+            try:
+                if pd.isna(val) or val is None:
+                    return default
+                return float(val)
+            except:
+                return default
+        
         try:
             self._random_sleep()
-            
             logger.info(f"[Akshare] 获取 {stock_code} 实时行情...")
             
-            df = None
-            
-            # 首先尝试 Eastmoney 源
-            try:
-                df = self._ak.stock_zh_a_spot_em()
-                if df is not None and not df.empty:
-                    logger.debug(f"[Akshare] 通过 stock_zh_a_spot_em 获取实时行情")
-            except Exception as e:
-                logger.warning(f"[Akshare] stock_zh_a_spot_em 失败: {e}，尝试备用源...")
-            
-            # Fallback: 使用通用实时行情（Sina 源）
-            if df is None or df.empty:
-                try:
-                    df = self._ak.stock_zh_a_spot()
-                    if df is not None and not df.empty:
-                        logger.debug(f"[Akshare] 通过 stock_zh_a_spot (备用) 获取实时行情")
-                except Exception as e:
-                    logger.warning(f"[Akshare] stock_zh_a_spot 失败: {e}")
-            
-            if df is None or df.empty:
-                logger.warning(f"[Akshare] 实时行情返回空数据")
-                return None
-            
-            # 查找指定股票
-            row = df[df['代码'] == stock_code]
-            if row.empty:
-                logger.warning(f"[Akshare] 未找到股票 {stock_code}")
-                return None
-            
-            row = row.iloc[0]
-            
-            # 安全获取数值
-            def safe_float(val, default=0.0):
-                try:
-                    if pd.isna(val):
-                        return default
-                    return float(val)
-                except:
-                    return default
-            
-            return {
+            result = {
                 'code': stock_code,
-                'name': str(row.get('名称', '')),
-                'price': safe_float(row.get('最新价')),
-                'change_pct': safe_float(row.get('涨跌幅')),
-                'change_amount': safe_float(row.get('涨跌额')),
-                'volume': safe_float(row.get('成交量')),
-                'amount': safe_float(row.get('成交额')),
-                'turnover_rate': safe_float(row.get('换手率')),
-                'volume_ratio': safe_float(row.get('量比')),
-                'amplitude': safe_float(row.get('振幅')),
-                'high': safe_float(row.get('最高')),
-                'low': safe_float(row.get('最低')),
-                'open_price': safe_float(row.get('今开')),
-                'pe_ratio': safe_float(row.get('市盈率-动态')),
-                'pb_ratio': safe_float(row.get('市净率')),
-                'total_mv': safe_float(row.get('总市值')),
-                'circ_mv': safe_float(row.get('流通市值')),
+                'name': '',
+                'price': 0.0,
+                'change_pct': 0.0,
+                'change_amount': 0.0,
+                'volume': 0.0,
+                'amount': 0.0,
+                'turnover_rate': 0.0,
+                'volume_ratio': None,  # 需要计算，暂时缺失
+                'amplitude': 0.0,
+                'high': 0.0,
+                'low': 0.0,
+                'open_price': 0.0,
+                'pe_ratio': None,  # 单独接口获取
+                'pb_ratio': None,  # 单独接口获取
+                'total_mv': 0.0,
+                'circ_mv': 0.0,
             }
             
+            # ========== 步骤1：获取价格和交易数据 (stock_zh_a_hist) ==========
+            hist_success = False
+            try:
+                # 获取最近7天的数据，最后一天包含最新实时数据
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=7)
+                
+                df_hist = self._ak.stock_zh_a_hist(
+                    symbol=stock_code,
+                    period='daily',
+                    start_date=start_date.strftime('%Y%m%d'),
+                    end_date=end_date.strftime('%Y%m%d'),
+                    adjust=''
+                )
+                
+                if df_hist is not None and not df_hist.empty:
+                    latest = df_hist.iloc[-1]
+                    prev = df_hist.iloc[-2] if len(df_hist) >= 2 else latest
+                    
+                    result['price'] = safe_float(latest.get('收盘'))
+                    result['open_price'] = safe_float(latest.get('开盘'))
+                    result['high'] = safe_float(latest.get('最高'))
+                    result['low'] = safe_float(latest.get('最低'))
+                    result['volume'] = safe_float(latest.get('成交量'))
+                    result['amount'] = safe_float(latest.get('成交额'))
+                    result['change_pct'] = safe_float(latest.get('涨跌幅'))
+                    result['change_amount'] = safe_float(latest.get('涨跌额'))
+                    result['amplitude'] = safe_float(latest.get('振幅'))
+                    result['turnover_rate'] = safe_float(latest.get('换手率'))
+                    
+                    # 计算量比 (当日成交量 / 前5日平均成交量)
+                    if len(df_hist) >= 6:
+                        avg_volume_5 = df_hist['成交量'].iloc[-6:-1].mean()
+                        if avg_volume_5 > 0:
+                            result['volume_ratio'] = round(result['volume'] / avg_volume_5, 2)
+                    
+                    hist_success = True
+                    logger.debug(f"[Akshare] 通过 stock_zh_a_hist 获取 {stock_code} 价格数据")
+                    
+            except Exception as e:
+                logger.debug(f"[Akshare] stock_zh_a_hist 失败: {e}")
+            
+            # ========== 步骤2：获取市值和行业数据 (stock_individual_info_em) ==========
+            info_success = False
+            try:
+                df_info = self._ak.stock_individual_info_em(symbol=stock_code)
+                
+                if df_info is not None and not df_info.empty:
+                    # 转换为字典便于查找
+                    info_dict = dict(zip(df_info['item'], df_info['value']))
+                    
+                    result['name'] = str(info_dict.get('股票简称', ''))
+                    result['total_mv'] = safe_float(info_dict.get('总市值'))
+                    result['circ_mv'] = safe_float(info_dict.get('流通市值'))
+                    # 总股本和流通股也可获取，但暂不放入 result
+                    
+                    info_success = True
+                    logger.debug(f"[Akshare] 通过 stock_individual_info_em 获取 {stock_code} 市值数据")
+                    
+            except Exception as e:
+                logger.debug(f"[Akshare] stock_individual_info_em 失败: {e}")
+            
+            # ========== 步骤3：如果前两步都失败，使用全量接口作为 fallback ==========
+            if not hist_success:
+                logger.warning(f"[Akshare] 个股接口失败，尝试全量接口获取 {stock_code}...")
+                
+                df_full = None
+                
+                # 尝试 Eastmoney 全量接口
+                try:
+                    df_full = self._ak.stock_zh_a_spot_em()
+                    if df_full is not None and not df_full.empty:
+                        logger.debug(f"[Akshare] 通过 stock_zh_a_spot_em 获取全量数据")
+                except Exception as e:
+                    logger.debug(f"[Akshare] stock_zh_a_spot_em 失败: {e}")
+                
+                # Fallback: Sina 全量接口
+                if df_full is None or df_full.empty:
+                    try:
+                        df_full = self._ak.stock_zh_a_spot()
+                        if df_full is not None and not df_full.empty:
+                            logger.debug(f"[Akshare] 通过 stock_zh_a_spot 获取全量数据")
+                    except Exception as e:
+                        logger.debug(f"[Akshare] stock_zh_a_spot 失败: {e}")
+                
+                if df_full is not None and not df_full.empty:
+                    row = df_full[df_full['代码'] == stock_code]
+                    if not row.empty:
+                        row = row.iloc[0]
+                        result['name'] = str(row.get('名称', ''))
+                        result['price'] = safe_float(row.get('最新价'))
+                        result['change_pct'] = safe_float(row.get('涨跌幅'))
+                        result['change_amount'] = safe_float(row.get('涨跌额'))
+                        result['volume'] = safe_float(row.get('成交量'))
+                        result['amount'] = safe_float(row.get('成交额'))
+                        result['turnover_rate'] = safe_float(row.get('换手率'))
+                        result['volume_ratio'] = safe_float(row.get('量比'))
+                        result['amplitude'] = safe_float(row.get('振幅'))
+                        result['high'] = safe_float(row.get('最高'))
+                        result['low'] = safe_float(row.get('最低'))
+                        result['open_price'] = safe_float(row.get('今开'))
+                        result['pe_ratio'] = safe_float(row.get('市盈率-动态'))
+                        result['pb_ratio'] = safe_float(row.get('市净率'))
+                        result['total_mv'] = safe_float(row.get('总市值'))
+                        result['circ_mv'] = safe_float(row.get('流通市值'))
+                        hist_success = True
+            
+            # 返回结果（只要有价格数据就算成功）
+            if hist_success and result['price'] > 0:
+                logger.info(f"[Akshare] 成功获取 {stock_code} 实时行情: 价格={result['price']}, 涨跌幅={result['change_pct']:.2f}%")
+                return result
+            else:
+                logger.warning(f"[Akshare] 未能获取 {stock_code} 有效价格数据")
+                return None
+                
         except Exception as e:
             logger.error(f"[Akshare] 获取 {stock_code} 实时行情失败: {e}")
             return None
@@ -512,30 +621,45 @@ class AkshareFetcher(BaseFetcher):
         """
         获取市场概览（全部A股实时行情）
         
+        优化：添加缓存机制，5分钟内重复请求直接返回缓存
+        
         Returns:
             DataFrame 包含全部A股实时数据
         """
+        cache_key = "market_overview"
+        
+        # 检查缓存
+        cached_data = self._get_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+        
         try:
             self._random_sleep()
             logger.info("[Akshare] 获取市场概览...")
+            
+            df = None
             
             # 首先尝试 Eastmoney 源
             try:
                 df = self._ak.stock_zh_a_spot_em()
                 if df is not None and not df.empty:
                     logger.info(f"[Akshare] 通过 stock_zh_a_spot_em 获取到 {len(df)} 条数据")
-                    return df
             except Exception as e:
                 logger.warning(f"[Akshare] stock_zh_a_spot_em 失败: {e}，尝试备用源...")
             
             # Fallback: 使用通用实时行情（Sina 源）
-            try:
-                df = self._ak.stock_zh_a_spot()
-                if df is not None and not df.empty:
-                    logger.info(f"[Akshare] 通过 stock_zh_a_spot (备用) 获取到 {len(df)} 条数据")
-                    return df
-            except Exception as e:
-                logger.warning(f"[Akshare] stock_zh_a_spot 失败: {e}")
+            if df is None or df.empty:
+                try:
+                    df = self._ak.stock_zh_a_spot()
+                    if df is not None and not df.empty:
+                        logger.info(f"[Akshare] 通过 stock_zh_a_spot (备用) 获取到 {len(df)} 条数据")
+                except Exception as e:
+                    logger.warning(f"[Akshare] stock_zh_a_spot 失败: {e}")
+            
+            if df is not None and not df.empty:
+                # 存入缓存
+                self._set_cache(cache_key, df)
+                return df
             
             return pd.DataFrame()
             
@@ -941,6 +1065,11 @@ class AkshareFetcher(BaseFetcher):
     def _get_stock_pool(self, market: str = "A股") -> pd.DataFrame:
         """
         获取市场股票池
+        
+        优化策略：
+        1. 优先使用缓存（5分钟有效期）
+        2. 使用指数成分股作为高效备选方案（沪深300+中证500+中证1000覆盖约1800只）
+        3. 最后使用全量接口
 
         Args:
             market: 市场范围（"A股", "沪市", "深市", "创业板", "科创板"）
@@ -948,37 +1077,68 @@ class AkshareFetcher(BaseFetcher):
         Returns:
             DataFrame 包含列：code, name, market, industry
         """
+        cache_key = f"stock_pool_{market}"
+        
+        # 1. 检查缓存
+        cached_data = self._get_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+        
         try:
             self._random_sleep()
             logger.info(f"[Akshare] 获取 {market} 股票池...")
 
             df = None
             
-            # 首先尝试 Eastmoney 源
-            try:
-                # 根据市场选择对应接口
-                if market == "沪市":
-                    df = self._ak.stock_sh_a_spot_em()
-                elif market == "深市":
-                    df = self._ak.stock_sz_a_spot_em()
-                elif market == "创业板":
-                    df = self._ak.stock_cy_a_spot_em()
-                elif market == "科创板":
-                    df = self._ak.stock_kc_a_spot_em()
-                else:  # A股全部
-                    df = self._ak.stock_zh_a_spot_em()
-                
-                if df is not None and not df.empty:
-                    logger.debug(f"[Akshare] 通过 Eastmoney 源获取 {market} 股票池")
-            except Exception as e:
-                logger.warning(f"[Akshare] Eastmoney 源失败: {e}，尝试备用源...")
+            # 2. 尝试使用指数成分股作为备选（更快，不会被拦截）
+            if market == "A股":
+                try:
+                    logger.debug(f"[Akshare] 尝试使用指数成分股构建股票池...")
+                    # 合并多个主流指数成分股
+                    index_codes = ['000300', '000905', '000852']  # 沪深300 + 中证500 + 中证1000
+                    all_stocks = []
+                    
+                    for index_code in index_codes:
+                        try:
+                            idx_df = self._ak.index_stock_cons_weight_csindex(symbol=index_code)
+                            if idx_df is not None and not idx_df.empty:
+                                all_stocks.append(idx_df[['成分券代码', '成分券名称']])
+                        except Exception:
+                            continue
+                    
+                    if all_stocks:
+                        df = pd.concat(all_stocks, ignore_index=True)
+                        df = df.drop_duplicates(subset=['成分券代码'])
+                        df = df.rename(columns={'成分券代码': '代码', '成分券名称': '名称'})
+                        logger.info(f"[Akshare] 通过指数成分股获取股票池: {len(df)} 只")
+                except Exception as e:
+                    logger.debug(f"[Akshare] 指数成分股方案失败: {e}")
             
-            # Fallback: 使用通用实时行情（Sina 源）
+            # 3. 尝试 Eastmoney 源
+            if df is None or df.empty:
+                try:
+                    if market == "沪市":
+                        df = self._ak.stock_sh_a_spot_em()
+                    elif market == "深市":
+                        df = self._ak.stock_sz_a_spot_em()
+                    elif market == "创业板":
+                        df = self._ak.stock_cy_a_spot_em()
+                    elif market == "科创板":
+                        df = self._ak.stock_kc_a_spot_em()
+                    else:  # A股全部
+                        df = self._ak.stock_zh_a_spot_em()
+                    
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 Eastmoney 源获取 {market} 股票池: {len(df)} 只")
+                except Exception as e:
+                    logger.warning(f"[Akshare] Eastmoney 源失败: {e}")
+            
+            # 4. Fallback: Sina 源
             if df is None or df.empty:
                 try:
                     df = self._ak.stock_zh_a_spot()
                     if df is not None and not df.empty:
-                        logger.debug(f"[Akshare] 通过 Sina 源(备用)获取股票池")
+                        logger.debug(f"[Akshare] 通过 Sina 源获取股票池")
                         
                         # 根据市场筛选
                         if market == "沪市":
@@ -1011,6 +1171,9 @@ class AkshareFetcher(BaseFetcher):
                 if 'industry' in df.columns:
                     cols.append('industry')
                 df = df[cols]
+                
+                # 存入缓存
+                self._set_cache(cache_key, df)
 
                 return df
 
@@ -1023,6 +1186,11 @@ class AkshareFetcher(BaseFetcher):
     def _get_industry_stocks(self, industry_name: str) -> pd.DataFrame:
         """
         获取行业成分股
+        
+        优化策略：
+        1. 优先使用缓存
+        2. 使用专门的行业成分股接口
+        3. 最后才使用全量筛选
 
         Args:
             industry_name: 行业名称，如 "半导体", "白酒"
@@ -1030,46 +1198,58 @@ class AkshareFetcher(BaseFetcher):
         Returns:
             DataFrame 包含列：code, name
         """
+        cache_key = f"industry_stocks_{industry_name}"
+        
+        # 检查缓存
+        cached_data = self._get_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+        
         try:
             self._random_sleep()
             logger.info(f"[Akshare] 获取行业 {industry_name} 成分股...")
 
-            # 尝试使用板块数据接口
+            df = None
+            
+            # 方法1：使用东方财富行业成分股接口
             try:
                 df = self._ak.stock_board_industry_cons_em(symbol=industry_name)
                 if df is not None and not df.empty:
-                    # 标准化列名
-                    if '代码' in df.columns:
-                        df = df.rename(columns={'代码': 'code'})
-                    if '名称' in df.columns:
-                        df = df.rename(columns={'名称': 'name'})
-
-                    if 'code' in df.columns and 'name' in df.columns:
-                        return df[['code', 'name']]
+                    logger.debug(f"[Akshare] 通过 stock_board_industry_cons_em 获取行业成分股")
             except Exception as e1:
-                logger.debug(f"[Akshare] 方法1获取行业成分股失败: {e1}")
-
-            # 备选：从全市场筛选所属行业
-            try:
-                # 首先尝试 Eastmoney 源
-                df = None
+                logger.debug(f"[Akshare] 东方财富行业接口失败: {e1}")
+            
+            # 方法2：使用同花顺行业成分股接口
+            if df is None or df.empty:
                 try:
-                    df = self._ak.stock_zh_a_spot_em()
-                except Exception:
-                    pass
+                    df = self._ak.stock_board_industry_cons_ths(symbol=industry_name)
+                    if df is not None and not df.empty:
+                        logger.debug(f"[Akshare] 通过 stock_board_industry_cons_ths 获取行业成分股")
+                except Exception as e2:
+                    logger.debug(f"[Akshare] 同花顺行业接口失败: {e2}")
+
+            if df is not None and not df.empty:
+                # 标准化列名
+                if '代码' in df.columns:
+                    df = df.rename(columns={'代码': 'code'})
+                if '名称' in df.columns:
+                    df = df.rename(columns={'名称': 'name'})
                 
-                # Fallback: 使用 Sina 源
-                if df is None or df.empty:
-                    df = self._ak.stock_zh_a_spot()
-                
-                if df is not None and not df.empty:
-                    industry_stocks = df[df['所属行业'] == industry_name]
-                    if not industry_stocks.empty:
-                        result = industry_stocks[['代码', '名称']].copy()
-                        result = result.rename(columns={'代码': 'code', '名称': 'name'})
-                        return result
-            except Exception as e2:
-                logger.debug(f"[Akshare] 方法2获取行业成分股失败: {e2}")
+                if 'code' in df.columns and 'name' in df.columns:
+                    result = df[['code', 'name']]
+                    self._set_cache(cache_key, result)
+                    return result
+            
+            # 方法3（备选）：从股票池中筛选（使用缓存的股票池）
+            logger.warning(f"[Akshare] 专门行业接口失败，尝试从股票池筛选 {industry_name}...")
+            stock_pool = self._get_stock_pool("A股")
+            
+            if not stock_pool.empty and 'industry' in stock_pool.columns:
+                industry_stocks = stock_pool[stock_pool['industry'] == industry_name]
+                if not industry_stocks.empty:
+                    result = industry_stocks[['code', 'name']].copy()
+                    self._set_cache(cache_key, result)
+                    return result
 
             return pd.DataFrame()
 
