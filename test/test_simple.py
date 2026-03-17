@@ -12,7 +12,8 @@ for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-sys.path.insert(0, 'skills/stockton/scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
+sys.path.insert(0, skill_scripts_path)
 
 from data_provider import AkshareFetcher
 

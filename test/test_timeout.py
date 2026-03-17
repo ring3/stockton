@@ -12,7 +12,8 @@ for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-sys.path.insert(0, 'skills/stockton/scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
+sys.path.insert(0, skill_scripts_path)
 
 from data_provider import AkshareFetcher
 
@@ -50,7 +51,7 @@ else:
     print(f'  [WARN] 获取失败或为空，耗时 {elapsed:.2f}s')
 
 # 测试 3: _get_market_overview
-print('\n[测试3] _get_market_overview (市场概览)')
+print('\n[测试3] _get_market_overview (市场概况)')
 print('  预期: EM失败则fallback到Sina')
 start = time.time()
 df = fetcher._get_market_overview()

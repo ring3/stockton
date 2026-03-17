@@ -9,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-skill_scripts_path = os.path.join(os.path.dirname(__file__), 'skills', 'stockton', 'scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
 if skill_scripts_path not in sys.path:
     sys.path.insert(0, skill_scripts_path)
 

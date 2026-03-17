@@ -9,7 +9,8 @@ import time
 for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
     os.environ.pop(key, None)
 
-sys.path.insert(0, 'skills/stockton/scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
+sys.path.insert(0, skill_scripts_path)
 
 from data_provider import AkshareFetcher
 
@@ -60,7 +61,7 @@ else:
     print(f'   [WARN] {elapsed:.2f}s - 可能该行业暂无数据')
 
 # 4. 测试 _get_market_overview (已优化)
-print('\n[4] _get_market_overview (市场概览) - 首次请求')
+print('\n[4] _get_market_overview (市场概况) - 首次请求')
 print('   优化: 添加缓存')
 start = time.time()
 df = fetcher._get_market_overview()
@@ -70,7 +71,7 @@ if not df.empty:
 else:
     print(f'   [FAIL] {elapsed:.2f}s')
 
-print('\n[4b] _get_market_overview (市场概览) - 缓存命中')
+print('\n[4b] _get_market_overview (市场概况) - 缓存命中')
 start = time.time()
 df = fetcher._get_market_overview()
 elapsed = time.time() - start

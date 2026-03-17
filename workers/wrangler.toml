@@ -1,0 +1,40 @@
+name = "stockton-cloud"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# 启用 Node.js 兼容模式
+compatibility_flags = ["nodejs_compat"]
+
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "stockton-db"
+# 创建数据库后，运行: wrangler d1 list
+# 复制 database_id 填入下方
+database_id = "your-database-id-here"
+
+# KV 缓存绑定
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-kv-namespace-id-here"
+
+# 环境变量 (Secrets 使用 wrangler secret put 设置)
+[vars]
+ENVIRONMENT = "production"
+
+# 定时任务 - 每天清理2年前的数据
+[triggers]
+crons = ["0 2 * * *"]
+
+# 开发环境配置
+[env.dev]
+name = "stockton-cloud-dev"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "stockton-db-dev"
+database_id = "your-dev-database-id"
+
+[[env.dev.kv_namespaces]]
+binding = "CACHE"
+id = "your-dev-kv-id"

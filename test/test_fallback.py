@@ -12,7 +12,8 @@ for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-sys.path.insert(0, 'skills/stockton/scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
+sys.path.insert(0, skill_scripts_path)
 
 from data_provider import AkshareFetcher
 
@@ -46,8 +47,8 @@ def main():
     fetcher = AkshareFetcher()
     ak = fetcher._ak
     
-    # 测试 1: 市场概览 (带 fallback)
-    print("\n【测试1】市场概览 _get_market_overview")
+    # 测试 1: 市场概况 (带 fallback)
+    print("\n【测试1】市场概况 _get_market_overview")
     print("  预期行为: 先尝试 stock_zh_a_spot_em，失败后使用 stock_zh_a_spot")
     df = fetcher._get_market_overview()
     if not df.empty:
@@ -73,7 +74,7 @@ def main():
     else:
         print(f"  [FAIL] 获取失败")
     
-    # 测试 4: 股票池 (带 fallback)
+    # 测试 4: 股票池(带 fallback)
     print("\n【测试4】股票池 _get_stock_pool")
     print("  预期行为: 先尝试 Eastmoney 源，失败后使用 Sina 源")
     df = fetcher._get_stock_pool("A股")

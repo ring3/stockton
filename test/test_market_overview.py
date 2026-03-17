@@ -17,7 +17,8 @@ for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
     os.environ.pop(key, None)
 
 # 添加路径
-sys.path.insert(0, 'skills/stockton/scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
+sys.path.insert(0, skill_scripts_path)
 
 print('=' * 70)
 print('OpenClaw 模拟执行: 查看大盘')
@@ -27,7 +28,7 @@ print()
 try:
     from market_analyzer import get_market_overview, analyze_market_for_llm
     
-    print('[1/3] 获取市场概览数据...')
+    print('[1/3] 获取市场概况数据...')
     market_data = get_market_overview(format_type='dict')
     
     if market_data:

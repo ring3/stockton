@@ -1,0 +1,21 @@
+{
+  "name": "stockton-cloud",
+  "version": "1.0.0",
+  "description": "Stock data service on Cloudflare Workers",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create stockton-db",
+    "db:migrate": "wrangler d1 execute stockton-db --file=./database/schema.sql",
+    "db:studio": "wrangler d1 studio stockton-db"
+  },
+  "dependencies": {
+    "hono": "^3.12.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.22.1"
+  }
+}

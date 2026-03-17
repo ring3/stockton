@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # 添加 skill 路径到 sys.path
-skill_scripts_path = os.path.join(os.path.dirname(__file__), 'skills', 'stockton', 'scripts')
+skill_scripts_path = os.path.join(os.path.dirname(__file__), '..', 'skills', 'stockton', 'scripts')
 if skill_scripts_path not in sys.path:
     sys.path.insert(0, skill_scripts_path)
 
