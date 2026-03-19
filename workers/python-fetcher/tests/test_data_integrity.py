@@ -20,10 +20,6 @@ def check_adapter(adapter_class, name):
     
     try:
         adapter = adapter_class()
-        if not adapter.is_available():
-            print(f'[SKIP] {name} 不可用')
-            return
-            
         records = adapter.get_stock_history('000001', '20250310', '20250315')
         if not records:
             print(f'[FAIL] 未获取到数据')

@@ -324,23 +324,6 @@ class DataSourceAdapter(ABC):
         """
         return {}
     
-    def is_available(self) -> bool:
-        """检查数据源是否可用"""
-        try:
-            # 使用超时控制测试连接（防止某些数据源卡住）
-            run_with_timeout(self._test_connection, timeout=10)
-            return True
-        except TimeoutError:
-            logger.warning(f"{self.name} 可用性测试超时")
-            return False
-        except Exception as e:
-            logger.warning(f"{self.name} 不可用: {e}")
-            return False
-    
-    def _test_connection(self):
-        """测试连接（子类可覆盖）"""
-        pass
-    
     def _calculate_ma(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         计算均线，保留3位小数
@@ -371,23 +354,6 @@ class AkshareEastmoneyAdapter(DataSourceAdapter):
             self.ak = ak
         except ImportError:
             raise ImportError("akshare not installed")
-    
-    def _test_connection(self):
-        """测试连接，使用短超时避免卡住"""
-        try:
-            df = run_with_timeout(
-                self._test_connection_impl,
-                timeout=5
-            )
-        except TimeoutError:
-            raise ConnectionError("东财连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        df = self.ak.stock_zh_a_hist(symbol='000001', period='daily', 
-                                     start_date='20230101', end_date='20230105')
-        if df is None or df.empty:
-            raise ConnectionError("akshare test failed")
     
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """获取股票历史数据"""
@@ -521,22 +487,6 @@ class AkshareSinaAdapter(DataSourceAdapter):
         except ImportError:
             raise ImportError("akshare not installed")
     
-    def _test_connection(self):
-        """测试连接，使用短超时避免卡住"""
-        try:
-            df = run_with_timeout(
-                self._test_connection_impl,
-                timeout=5  # 5秒超时
-            )
-        except TimeoutError:
-            raise ConnectionError("新浪连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        df = self.ak.stock_zh_a_daily(symbol='sz000001', start_date='20230101', end_date='20230105')
-        if df is None or df.empty:
-            raise ConnectionError("sina test failed")
-    
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """获取股票历史数据"""
         symbol = normalize_stock_code(code)
@@ -614,22 +564,6 @@ class AkshareTencentAdapter(DataSourceAdapter):
             self.ak = ak
         except ImportError:
             raise ImportError("akshare not installed")
-    
-    def _test_connection(self):
-        """测试连接，使用短超时避免卡住"""
-        try:
-            df = run_with_timeout(
-                self._test_connection_impl,
-                timeout=5
-            )
-        except TimeoutError:
-            raise ConnectionError("腾讯连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        df = self.ak.stock_zh_a_hist_tx(symbol='sz000001', start_date='20230101', end_date='20230105')
-        if df is None or df.empty:
-            raise ConnectionError("tencent test failed")
     
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """获取股票历史数据"""
@@ -738,27 +672,6 @@ class BaostockAdapter(DataSourceAdapter):
                 pass
             self._logged_in = False
             logger.info("Baostock 登出")
-    
-    def _test_connection(self):
-        """测试连接，带超时控制"""
-        try:
-            run_with_timeout(self._test_connection_impl, timeout=15)
-        except TimeoutError:
-            raise ConnectionError("Baostock 连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        self._login()
-        rs = self.bs.query_history_k_data_plus(
-            "sh.600000",
-            "date",
-            start_date='2023-01-01',
-            end_date='2023-01-05',
-            frequency='d',
-            adjustflag='2'
-        )
-        if rs.error_code != '0':
-            raise ConnectionError(f"Baostock test failed: {rs.error_msg}")
     
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """获取股票历史数据，带超时控制"""
@@ -957,23 +870,6 @@ class AkshareHEastmoneyAdapter(DataSourceAdapter):
         except ImportError:
             raise ImportError("akshare not installed")
     
-    def _test_connection(self):
-        """测试连接，使用短超时避免卡住"""
-        try:
-            df = run_with_timeout(
-                self._test_connection_impl,
-                timeout=5
-            )
-        except TimeoutError:
-            raise ConnectionError("港股东财连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        df = self.ak.stock_hk_hist(symbol='00700', period='daily', 
-                                   start_date='20250301', end_date='20250310')
-        if df is None or df.empty:
-            raise ConnectionError("akshare h_em test failed")
-    
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """
         获取港股历史数据
@@ -1063,22 +959,6 @@ class AkshareHSinaAdapter(DataSourceAdapter):
             self.ak = ak
         except ImportError:
             raise ImportError("akshare not installed")
-    
-    def _test_connection(self):
-        """测试连接，使用短超时避免卡住"""
-        try:
-            df = run_with_timeout(
-                self._test_connection_impl,
-                timeout=5
-            )
-        except TimeoutError:
-            raise ConnectionError("港股新浪连接测试超时")
-    
-    def _test_connection_impl(self):
-        """实际测试连接逻辑"""
-        df = self.ak.stock_hk_daily(symbol='00700')
-        if df is None or df.empty:
-            raise ConnectionError("akshare h_sina test failed")
     
     def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
         """

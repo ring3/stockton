@@ -23,12 +23,6 @@ def test_source(adapter_class, name, code='000001'):
     try:
         adapter = adapter_class()
         
-        # 测试连接
-        if not adapter.is_available():
-            print("[FAIL] 连接测试失败")
-            return None
-        print("[OK] 连接测试通过")
-        
         # 获取数据
         import time
         start = time.time()

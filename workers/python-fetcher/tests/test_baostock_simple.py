@@ -16,13 +16,6 @@ try:
     adapter = BaostockAdapter()
     print("[OK] 适配器初始化成功")
     
-    # 测试连接
-    if adapter.is_available():
-        print("[OK] 连接测试通过")
-    else:
-        print("[FAIL] 连接测试失败")
-        sys.exit(1)
-    
     # 获取数据
     print("\n获取股票数据 (000001)...")
     records = adapter.get_stock_history('000001', '20250301', '20250315')
