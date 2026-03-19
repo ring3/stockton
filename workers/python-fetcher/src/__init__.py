@@ -12,6 +12,8 @@ from .data_source import (
     AkshareSinaAdapter,
     AkshareTencentAdapter,
     BaostockAdapter,
+    AkshareHEastmoneyAdapter,
+    AkshareHSinaAdapter,
     is_hk_stock_code
 )
 from .sync import WorkersSync
@@ -24,6 +26,8 @@ __all__ = [
     'AkshareSinaAdapter',
     'AkshareTencentAdapter',
     'BaostockAdapter',
+    'AkshareHEastmoneyAdapter',
+    'AkshareHSinaAdapter',
     'is_hk_stock_code',
     'WorkersSync',
 ]

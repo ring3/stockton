@@ -12,16 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class WorkersSync:
-    """Workers 数据同步器 V2 - 支持分表（ETF统一表）"""
+    """Workers 数据同步器 - 统一使用 stock_a_data 表"""
     
-    # 指数表映射（简化命名）
-    INDEX_TABLE_MAP = {
-        'data_if300': ('000300', 'index'),
-        'data_ic500': ('000905', 'index'),
-    }
-    
-    # ETF统一表（简化命名）
-    ETF_TABLE = 'data_etf'
+    # 统一数据表
+    STOCK_A_TABLE = 'stock_a_data'
     
     def __init__(self, workers_url: str, api_key: str):
         """
@@ -112,16 +106,12 @@ class WorkersSync:
         logger.info(f"✓ 表 {table_name} 同步完成 ({total} 条)")
         return True
     
-    def sync_from_local_db(self, local_db, 
-                           index_tables: List[str] = None,
-                           sync_etf: bool = True) -> Dict:
+    def sync_from_local_db(self, local_db) -> Dict:
         """
-        从本地数据库同步所有数据到 Workers
+        从本地数据库同步 stock_a_data 表数据到 Workers
         
         Args:
             local_db: 本地数据库实例 (LocalDatabase)
-            index_tables: 要同步的指数表列表，None则同步所有指数表
-            sync_etf: 是否同步ETF数据
             
         Returns:
             同步结果统计
@@ -132,107 +122,44 @@ class WorkersSync:
         
         results = {
             'success': True,
-            'tables': {},
+            'table': self.STOCK_A_TABLE,
             'total_prices': 0,
-            'failed_tables': [],
+            'error': None,
         }
         
-        # 1. 同步指数成分股数据
-        if index_tables is None:
-            index_tables = list(self.INDEX_TABLE_MAP.keys())
-        
-        for table_name in index_tables:
-            try:
-                logger.info(f"\n{'='*60}")
-                logger.info(f"同步指数表: {table_name}")
-                logger.info(f"{'='*60}")
-                
-                # 从本地数据库读取数据
-                prices = local_db.get_all_prices_for_sync(table_name)
-                
-                if not prices:
-                    logger.info(f"表 {table_name} 无数据，跳过")
-                    results['tables'][table_name] = {'success': True, 'count': 0}
-                    continue
-                
-                logger.info(f"从本地读取 {len(prices)} 条记录")
-                
-                # 同步到 Workers
-                success = self.sync_table(table_name, prices)
-                
-                if success:
-                    results['tables'][table_name] = {
-                        'success': True,
-                        'count': len(prices)
-                    }
-                    results['total_prices'] += len(prices)
-                else:
-                    results['tables'][table_name] = {
-                        'success': False,
-                        'count': 0,
-                        'error': 'Sync failed'
-                    }
-                    results['failed_tables'].append(table_name)
-                    results['success'] = False
-                
-            except Exception as e:
-                logger.error(f"同步表 {table_name} 异常: {e}")
-                results['tables'][table_name] = {
-                    'success': False,
-                    'count': 0,
-                    'error': str(e)
-                }
-                results['failed_tables'].append(table_name)
+        try:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"同步统一数据表: {self.STOCK_A_TABLE}")
+            logger.info(f"{'='*60}")
+            
+            # 从本地数据库读取数据
+            prices = local_db.get_all_prices_for_sync(self.STOCK_A_TABLE)
+            
+            if not prices:
+                logger.info(f"表 {self.STOCK_A_TABLE} 无数据，跳过")
+                results['success'] = True
+                results['count'] = 0
+                return results
+            
+            logger.info(f"从本地读取 {len(prices)} 条记录")
+            
+            # 同步到 Workers
+            success = self.sync_table(self.STOCK_A_TABLE, prices)
+            
+            if success:
+                results['success'] = True
+                results['count'] = len(prices)
+                results['total_prices'] = len(prices)
+            else:
                 results['success'] = False
-        
-        # 2. 同步ETF数据（统一表）
-        if sync_etf:
-            try:
-                logger.info(f"\n{'='*60}")
-                logger.info(f"同步ETF表: {self.ETF_TABLE}")
-                logger.info(f"{'='*60}")
-                
-                # 从本地数据库读取ETF数据
-                etf_prices = local_db.get_etf_prices_for_sync()
-                
-                if not etf_prices:
-                    logger.info("ETF表无数据，跳过")
-                    results['tables'][self.ETF_TABLE] = {'success': True, 'count': 0}
-                else:
-                    logger.info(f"从本地读取 {len(etf_prices)} 条ETF记录")
-                    
-                    # 同步到 Workers（标记为ETF类型）
-                    success = self.sync_table(
-                        self.ETF_TABLE, 
-                        etf_prices,
-                        code='ETF',
-                        code_type='etf'
-                    )
-                    
-                    if success:
-                        results['tables'][self.ETF_TABLE] = {
-                            'success': True,
-                            'count': len(etf_prices)
-                        }
-                        results['total_prices'] += len(etf_prices)
-                    else:
-                        results['tables'][self.ETF_TABLE] = {
-                            'success': False,
-                            'count': 0,
-                            'error': 'Sync failed'
-                        }
-                        results['failed_tables'].append(self.ETF_TABLE)
-                        results['success'] = False
-                
-            except Exception as e:
-                logger.error(f"同步ETF表异常: {e}")
-                results['tables'][self.ETF_TABLE] = {
-                    'success': False,
-                    'count': 0,
-                    'error': str(e)
-                }
-                results['failed_tables'].append(self.ETF_TABLE)
-                results['success'] = False
+                results['count'] = 0
+                results['error'] = 'Sync failed'
+            
+        except Exception as e:
+            logger.error(f"同步表 {self.STOCK_A_TABLE} 异常: {e}")
+            results['success'] = False
+            results['count'] = 0
+            results['error'] = str(e)
         
         return results
     

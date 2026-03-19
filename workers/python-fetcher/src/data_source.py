@@ -102,6 +102,40 @@
 - 备选3: akshare_em (数据最全，但可能被代理阻止)
 
 ================================================================================
+港股数据源对比 (Hong Kong Stocks)
+================================================================================
+
+【港股适配器】
+- akshare_h_em (东方财富港股): 使用 ak.stock_hk_hist 接口
+- akshare_h_sina (新浪港股): 使用 ak.stock_hk_daily 接口
+
+【港股数据字段对比】
+┌─────────────────┬──────────────┬──────────────┐
+│ 字段            │ akshare_h_em │ akshare_h_sina│
+├─────────────────┼──────────────┼──────────────┤
+│ date            │ ✅           │ ✅           │
+│ open            │ ✅           │ ✅           │
+│ high            │ ✅           │ ✅           │
+│ low             │ ✅           │ ✅           │
+│ close           │ ✅           │ ✅           │
+│ volume          │ ✅ 股数      │ ✅ 股数      │
+│ amount          │ ✅ 元        │ ❌ 无        │
+│ change_pct      │ ✅ 原始值    │ ✅ 计算值    │
+│ turnover_rate   │ ✅           │ ❌ 无        │
+│ ma5/10/20/60    │ ✅ 计算      │ ✅ 计算      │
+└─────────────────┴──────────────┴──────────────┘
+
+【港股代码格式】
+- 支持 1-5 位数字代码，如 '00700' (腾讯控股)
+- 支持带 'hk' 前缀的代码，如 'hk00700', 'hk1810'
+- 自动去除前缀后传递给 akshare 接口
+
+【港股数据源限制】
+- akshare_h_em: 支持日期范围参数
+- akshare_h_sina: 不支持日期范围，返回全部历史数据（本地过滤）
+- 两者都不支持 get_index_components (抛出 NotImplementedError)
+
+================================================================================
 """
 import logging
 import pandas as pd
@@ -296,6 +330,12 @@ class DataSourceAdapter(ABC):
         df['ma20'] = df['close'].rolling(window=20, min_periods=1).mean().round(3)
         df['ma60'] = df['close'].rolling(window=60, min_periods=1).mean().round(3)
         return df
+    
+    def _round3(self, value) -> Optional[float]:
+        """将数值保留3位小数"""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        return round(float(value), 3)
 
 
 class AkshareEastmoneyAdapter(DataSourceAdapter):
@@ -359,18 +399,18 @@ class AkshareEastmoneyAdapter(DataSourceAdapter):
             records.append({
                 'code': code,
                 'date': row['date'],
-                'open': float(row['open']) if pd.notna(row['open']) else None,
-                'high': float(row['high']) if pd.notna(row['high']) else None,
-                'low': float(row['low']) if pd.notna(row['low']) else None,
-                'close': float(row['close']) if pd.notna(row['close']) else None,
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
                 'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
-                'amount': float(row['amount']) if pd.notna(row['amount']) else None,
-                'ma5': float(row['ma5']) if pd.notna(row['ma5']) else None,
-                'ma10': float(row['ma10']) if pd.notna(row['ma10']) else None,
-                'ma20': float(row['ma20']) if pd.notna(row['ma20']) else None,
-                'ma60': float(row['ma60']) if pd.notna(row['ma60']) else None,
-                'change_pct': float(row['change_pct']) if pd.notna(row['change_pct']) else None,
-                'turnover_rate': float(row['turnover_rate']) if pd.notna(row['turnover_rate']) else None,
+                'amount': self._round3(row['amount']),
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
+                'turnover_rate': self._round3(row['turnover_rate']),
             })
         
         return records
@@ -456,7 +496,7 @@ class AkshareSinaAdapter(DataSourceAdapter):
                 raise RuntimeError(f"日期解析失败: {e}, 原始数据: {df['date'].tolist()[:3] if 'date' in df.columns else '无date列'}...")
             
             df = self._calculate_ma(df)
-            df['change_pct'] = df['close'].pct_change() * 100
+            df['change_pct'] = (df['close'].pct_change() * 100).round(3)
         except Exception as e:
             raise RuntimeError(f"数据处理失败: {e}")
         
@@ -465,18 +505,18 @@ class AkshareSinaAdapter(DataSourceAdapter):
             records.append({
                 'code': code,
                 'date': row['date'],
-                'open': float(row['open']) if pd.notna(row['open']) else None,
-                'high': float(row['high']) if pd.notna(row['high']) else None,
-                'low': float(row['low']) if pd.notna(row['low']) else None,
-                'close': float(row['close']) if pd.notna(row['close']) else None,
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
                 'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
-                'amount': float(row['amount']) if pd.notna(row['amount']) else None,
-                'ma5': float(row['ma5']) if pd.notna(row['ma5']) else None,
-                'ma10': float(row['ma10']) if pd.notna(row['ma10']) else None,
-                'ma20': float(row['ma20']) if pd.notna(row['ma20']) else None,
-                'ma60': float(row['ma60']) if pd.notna(row['ma60']) else None,
-                'change_pct': float(row['change_pct']) if pd.notna(row['change_pct']) else None,
-                'turnover_rate': float(row['turnover_rate']) * 100 if pd.notna(row['turnover_rate']) else None,
+                'amount': self._round3(row['amount']),
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
+                'turnover_rate': self._round3(row['turnover_rate'] * 100) if pd.notna(row['turnover_rate']) else None,
             })
         
         return records
@@ -550,7 +590,7 @@ class AkshareTencentAdapter(DataSourceAdapter):
             
             df['volume'] = df['volume'] * 100  # 手转股
             df = self._calculate_ma(df)
-            df['change_pct'] = df['close'].pct_change() * 100
+            df['change_pct'] = (df['close'].pct_change() * 100).round(3)
         except Exception as e:
             raise RuntimeError(f"数据处理失败: {e}")
         
@@ -559,17 +599,17 @@ class AkshareTencentAdapter(DataSourceAdapter):
             records.append({
                 'code': code,
                 'date': row['date'],
-                'open': float(row['open']) if pd.notna(row['open']) else None,
-                'high': float(row['high']) if pd.notna(row['high']) else None,
-                'low': float(row['low']) if pd.notna(row['low']) else None,
-                'close': float(row['close']) if pd.notna(row['close']) else None,
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
                 'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
                 'amount': None,
-                'ma5': float(row['ma5']) if pd.notna(row['ma5']) else None,
-                'ma10': float(row['ma10']) if pd.notna(row['ma10']) else None,
-                'ma20': float(row['ma20']) if pd.notna(row['ma20']) else None,
-                'ma60': float(row['ma60']) if pd.notna(row['ma60']) else None,
-                'change_pct': float(row['change_pct']) if pd.notna(row['change_pct']) else None,
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
                 'turnover_rate': None,
             })
         
@@ -706,18 +746,18 @@ class BaostockAdapter(DataSourceAdapter):
             records.append({
                 'code': code,
                 'date': row['date'],
-                'open': float(row['open']) if pd.notna(row['open']) else None,
-                'high': float(row['high']) if pd.notna(row['high']) else None,
-                'low': float(row['low']) if pd.notna(row['low']) else None,
-                'close': float(row['close']) if pd.notna(row['close']) else None,
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
                 'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
-                'amount': float(row['amount']) if pd.notna(row['amount']) else None,
-                'ma5': float(row['ma5']) if pd.notna(row['ma5']) else None,
-                'ma10': float(row['ma10']) if pd.notna(row['ma10']) else None,
-                'ma20': float(row['ma20']) if pd.notna(row['ma20']) else None,
-                'ma60': float(row['ma60']) if pd.notna(row['ma60']) else None,
-                'change_pct': float(row['change_pct']) if pd.notna(row['change_pct']) else None,
-                'turnover_rate': float(row['turnover_rate']) * 100 if pd.notna(row['turnover_rate']) else None,
+                'amount': self._round3(row['amount']),
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
+                'turnover_rate': self._round3(row['turnover_rate'] * 100) if pd.notna(row['turnover_rate']) else None,
             })
         
         return records
@@ -762,6 +802,213 @@ class BaostockAdapter(DataSourceAdapter):
             })
         
         return components
+
+
+class AkshareHEastmoneyAdapter(DataSourceAdapter):
+    """
+    Akshare 港股东方财富数据源适配器
+    
+    使用 ak.stock_hk_hist 接口获取港股历史数据
+    数据源: 东方财富
+    """
+    
+    name = "akshare_h_em"
+    
+    def __init__(self):
+        try:
+            import akshare as ak
+            self.ak = ak
+        except ImportError:
+            raise ImportError("akshare not installed")
+    
+    def _test_connection(self):
+        """测试连接，使用短超时避免卡住"""
+        try:
+            df = run_with_timeout(
+                self._test_connection_impl,
+                timeout=5
+            )
+        except TimeoutError:
+            raise ConnectionError("港股东财连接测试超时")
+    
+    def _test_connection_impl(self):
+        """实际测试连接逻辑"""
+        df = self.ak.stock_hk_hist(symbol='00700', period='daily', 
+                                   start_date='20250301', end_date='20250310')
+        if df is None or df.empty:
+            raise ConnectionError("akshare h_em test failed")
+    
+    def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
+        """
+        获取港股历史数据
+        
+        Args:
+            code: 港股代码 (如 '00700', 'hk00700')
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+        
+        Returns:
+            List[Dict]: 历史数据记录列表
+        """
+        # 清理港股代码（去除hk前缀）
+        symbol = str(code).strip().lower()
+        if symbol.startswith('hk'):
+            symbol = symbol[2:]
+        
+        df = self.ak.stock_hk_hist(
+            symbol=symbol,
+            period="daily",
+            start_date=start_date,
+            end_date=end_date,
+            adjust="qfq"
+        )
+        
+        if df is None or df.empty:
+            return []
+        
+        # 列名映射（东财接口返回中文列名）
+        df = df.rename(columns={
+            '日期': 'date',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '振幅': 'amplitude',
+            '涨跌幅': 'change_pct',
+            '涨跌额': 'change_amount',
+            '换手率': 'turnover_rate',
+        })
+        
+        df = self._calculate_ma(df)
+        
+        records = []
+        for _, row in df.iterrows():
+            records.append({
+                'code': code,
+                'date': row['date'],
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
+                'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
+                'amount': self._round3(row['amount']),
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
+                'turnover_rate': self._round3(row['turnover_rate']),
+            })
+        
+        return records
+    
+    def get_index_components(self, index_code: str) -> List[Dict]:
+        """港股数据源不支持获取指数成分股"""
+        raise NotImplementedError(f"港股数据源不支持获取指数成分股: {index_code}")
+
+
+class AkshareHSinaAdapter(DataSourceAdapter):
+    """
+    Akshare 港股新浪数据源适配器
+    
+    使用 ak.stock_hk_daily 接口获取港股历史数据
+    数据源: 新浪财经
+    
+    注意: 该接口不支持日期范围参数，返回全部历史数据
+    """
+    
+    name = "akshare_h_sina"
+    
+    def __init__(self):
+        try:
+            import akshare as ak
+            self.ak = ak
+        except ImportError:
+            raise ImportError("akshare not installed")
+    
+    def _test_connection(self):
+        """测试连接，使用短超时避免卡住"""
+        try:
+            df = run_with_timeout(
+                self._test_connection_impl,
+                timeout=5
+            )
+        except TimeoutError:
+            raise ConnectionError("港股新浪连接测试超时")
+    
+    def _test_connection_impl(self):
+        """实际测试连接逻辑"""
+        df = self.ak.stock_hk_daily(symbol='00700')
+        if df is None or df.empty:
+            raise ConnectionError("akshare h_sina test failed")
+    
+    def get_stock_history(self, code: str, start_date: str, end_date: str) -> List[Dict]:
+        """
+        获取港股历史数据
+        
+        注意: stock_hk_daily 接口不支持日期范围参数，
+        需要获取全部数据后在本地过滤
+        
+        Args:
+            code: 港股代码 (如 '00700', 'hk00700')
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+        
+        Returns:
+            List[Dict]: 历史数据记录列表
+        """
+        # 清理港股代码（去除hk前缀）
+        symbol = str(code).strip().lower()
+        if symbol.startswith('hk'):
+            symbol = symbol[2:]
+        
+        df = self.ak.stock_hk_daily(symbol=symbol, adjust="qfq")
+        
+        if df is None or df.empty:
+            return []
+        
+        # 本地日期过滤（因为sina接口不支持日期范围参数）
+        # 转换日期格式用于比较
+        df['date'] = pd.to_datetime(df['date'])
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        
+        df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+        
+        if df.empty:
+            return []
+        
+        df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+        
+        df = self._calculate_ma(df)
+        df['change_pct'] = (df['close'].pct_change() * 100).round(3)
+        
+        records = []
+        for _, row in df.iterrows():
+            records.append({
+                'code': code,
+                'date': row['date'],
+                'open': self._round3(row['open']),
+                'high': self._round3(row['high']),
+                'low': self._round3(row['low']),
+                'close': self._round3(row['close']),
+                'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
+                'amount': None,  # sina港股接口没有成交额字段
+                'ma5': self._round3(row['ma5']),
+                'ma10': self._round3(row['ma10']),
+                'ma20': self._round3(row['ma20']),
+                'ma60': self._round3(row['ma60']),
+                'change_pct': self._round3(row['change_pct']),
+                'turnover_rate': None,  # sina港股接口没有换手率字段
+            })
+        
+        return records
+    
+    def get_index_components(self, index_code: str) -> List[Dict]:
+        """港股数据源不支持获取指数成分股"""
+        raise NotImplementedError(f"港股数据源不支持获取指数成分股: {index_code}")
 
 
 class DataSourceManager:

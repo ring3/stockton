@@ -10,9 +10,16 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
 try:
-    from .data_source import DataSourceManager
+    from .data_source import DataSourceManager, is_hk_stock_code
+    from .local_db import LocalDatabase
 except ImportError:
-    from data_source import DataSourceManager
+    from data_source import DataSourceManager, is_hk_stock_code
+    from local_db import LocalDatabase
+
+try:
+    import akshare as ak
+except ImportError:
+    ak = None
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +247,8 @@ class StockDataFetcher:
         """
         获取指数成分股数据并保存到本地数据库（增量更新）
         
+        数据统一保存到 stock_a_data 表，不再按指数分开存放
+        
         注意：网络连接异常会直接抛出中断执行，不会继续处理其他股票
         
         Args:
@@ -256,19 +265,17 @@ class StockDataFetcher:
             logger.error("未设置本地数据库")
             return {'total': 0, 'updated': 0, 'skipped': 0}
         
-        table_name = self.local_db.get_index_table_name(index_code)
-        if not table_name:
-            logger.error(f"不支持的指数代码: {index_code}")
-            return {'total': 0, 'updated': 0, 'skipped': 0}
-        
         # 获取成分股列表
         stocks = self.get_index_components(index_code)
         if not stocks:
             return {'total': 0, 'updated': 0, 'skipped': 0}
         
+        # 统一使用 stock_a_data 表
+        table_name = self.local_db.STOCK_A_TABLE
+        
         logger.info(f"\n开始处理指数 {index_code} ({self.indices.get(index_code)})")
         logger.info(f"成分股总数: {len(stocks)}")
-        logger.info(f"保存到表: {table_name}")
+        logger.info(f"统一保存到表: {table_name}")
         
         stats = {
             'total': len(stocks),
@@ -285,7 +292,7 @@ class StockDataFetcher:
             prices = self.get_stock_history(code, table_name)
             
             if prices:
-                # 保存数据（使用 INSERT OR REPLACE 自动处理重复）
+                # 保存数据到统一表（使用 INSERT OR REPLACE 自动处理重复）
                 saved = self.local_db.save_prices(table_name, prices)
                 stats['updated'] += 1
                 stats['new_records'] += saved
@@ -314,6 +321,8 @@ class StockDataFetcher:
         """
         获取所有ETF数据并保存到本地数据库（增量更新）
         
+        ETF数据统一保存到 stock_a_data 表，不再单独存放
+        
         注意：网络连接异常会直接抛出中断执行
         
         Returns:
@@ -326,7 +335,8 @@ class StockDataFetcher:
             logger.error("未设置本地数据库")
             return {'total': 0, 'updated': 0, 'new_records': 0}
         
-        table_name = self.local_db.ETF_TABLE
+        # 统一使用 stock_a_data 表
+        table_name = self.local_db.STOCK_A_TABLE
         total_new_records = 0
         updated_etfs = 0
         skipped_etfs = 0
@@ -339,12 +349,8 @@ class StockDataFetcher:
             prices = self.get_stock_history(etf_code, table_name)
             
             if prices:
-                # 添加ETF名称
-                for p in prices:
-                    p['name'] = etf_name
-                
-                # 保存到统一ETF表
-                saved = self.local_db.save_etf_prices(prices)
+                # 保存到统一表 stock_a_data
+                saved = self.local_db.save_prices(table_name, prices)
                 total_new_records += saved
                 updated_etfs += 1
                 logger.info(f"  [OK] 新增/更新 {saved} 条记录")
@@ -403,6 +409,15 @@ class StockDataFetcher:
         stats['etfs'] = etf_stats
         stats['total_new_records'] += etf_stats['new_records']
         
+        # 获取自选股数据
+        logger.info(f"\n{'='*60}")
+        logger.info("开始处理自选股列表")
+        logger.info(f"{'='*60}")
+        watchlist_stats = self.fetch_and_save_watchlist()
+        stats['watchlist'] = watchlist_stats
+        if watchlist_stats.get('success'):
+            stats['total_new_records'] += watchlist_stats.get('new_records', 0)
+        
         end_time = datetime.now()
         stats['end_time'] = end_time.isoformat()
         stats['duration_seconds'] = (end_time - start_time).total_seconds()
@@ -421,3 +436,317 @@ class StockDataFetcher:
             return float(value)
         except:
             return None
+    
+    # ============================================================
+    # 自选股相关方法
+    # ============================================================
+    
+    def _search_stock_code(self, keyword: str) -> Optional[Dict]:
+        """
+        通过关键词（名称或代码）搜索股票代码
+        
+        Args:
+            keyword: 股票名称或代码
+            
+        Returns:
+            股票信息字典 {'code': str, 'name': str, 'market_type': str}，未找到返回None
+        """
+        if ak is None:
+            logger.error("akshare 未安装，无法搜索股票")
+            return None
+        
+        # 先判断是否为港股代码格式
+        if is_hk_stock_code(keyword):
+            # 尝试获取港股名称
+            try:
+                df = ak.stock_hk_spot_em()
+                # 去除hk前缀进行匹配
+                search_code = keyword.lower().replace('hk', '')
+                match = df[df['代码'].astype(str).str.zfill(5) == search_code.zfill(5)]
+                if not match.empty:
+                    return {
+                        'code': search_code.zfill(5),
+                        'name': match.iloc[0]['名称'],
+                        'market_type': 'H'
+                    }
+            except Exception as e:
+                logger.warning(f"搜索港股 {keyword} 失败: {e}")
+            
+            # 如果无法获取名称，直接返回代码
+            code = keyword.lower().replace('hk', '').zfill(5)
+            return {'code': code, 'name': None, 'market_type': 'H'}
+        
+        # 判断是否为A股代码格式（6位数字）
+        if len(keyword) == 6 and keyword.isdigit():
+            # 尝试获取A股名称
+            try:
+                df = ak.stock_zh_a_spot_em()
+                match = df[df['代码'] == keyword]
+                if not match.empty:
+                    return {
+                        'code': keyword,
+                        'name': match.iloc[0]['名称'],
+                        'market_type': 'A'
+                    }
+            except Exception as e:
+                logger.warning(f"搜索A股 {keyword} 失败: {e}")
+            
+            # 如果无法获取名称，根据代码规则判断市场
+            if keyword.startswith('6'):
+                return {'code': keyword, 'name': None, 'market_type': 'A'}
+            elif keyword.startswith('0') or keyword.startswith('3'):
+                return {'code': keyword, 'name': None, 'market_type': 'A'}
+            elif keyword.startswith('68') or keyword.startswith('8') or keyword.startswith('4'):
+                return {'code': keyword, 'name': None, 'market_type': 'A'}
+        
+        # 按名称搜索A股
+        try:
+            df = ak.stock_zh_a_spot_em()
+            match = df[df['名称'].str.contains(keyword, case=False, na=False)]
+            if not match.empty:
+                return {
+                    'code': match.iloc[0]['代码'],
+                    'name': match.iloc[0]['名称'],
+                    'market_type': 'A'
+                }
+        except Exception as e:
+            logger.warning(f"按名称搜索A股 {keyword} 失败: {e}")
+        
+        # 按名称搜索港股
+        try:
+            df = ak.stock_hk_spot_em()
+            match = df[df['名称'].str.contains(keyword, case=False, na=False)]
+            if not match.empty:
+                code = match.iloc[0]['代码']
+                if isinstance(code, int):
+                    code = str(code).zfill(5)
+                else:
+                    code = str(code).zfill(5)
+                return {
+                    'code': code,
+                    'name': match.iloc[0]['名称'],
+                    'market_type': 'H'
+                }
+        except Exception as e:
+            logger.warning(f"按名称搜索港股 {keyword} 失败: {e}")
+        
+        logger.warning(f"未找到股票: {keyword}")
+        return None
+    
+    def update_watch_list(self, code: str, name: str = None) -> Optional[Dict]:
+        """
+        更新自选股列表
+        
+        将指定股票添加到自选股列表。根据代码自动判断是A股还是港股。
+        如果股票已存在，则更新信息。
+        
+        Args:
+            code: 股票代码（如 '000001' 或 '00700'，港股可带'hk'前缀如'hk00700'）
+            name: 股票名称（可选）
+            
+        Returns:
+            股票信息字典 {'code': str, 'name': str, 'market_type': str, 'added': bool}
+            added=True 表示新添加，added=False 表示已存在
+            失败返回None
+        """
+        if not self.local_db:
+            logger.error("未设置本地数据库")
+            return None
+        
+        if not code:
+            logger.error("股票代码不能为空")
+            return None
+        
+        # 判断是A股还是港股
+        if is_hk_stock_code(code):
+            market_type = 'H'
+            # 标准化港股代码（去除hk前缀）
+            code = code.lower().replace('hk', '').zfill(5)
+        else:
+            market_type = 'A'
+        
+        logger.info(f"更新自选股: {code} ({name}) [{market_type}股]")
+        
+        # 检查是否已在自选股列表
+        is_existing = self.local_db.is_in_watchlist(code)
+        
+        # 添加到自选股列表
+        success = self.local_db.add_to_watchlist(code, name, market_type)
+        
+        if success:
+            result = {
+                'code': code,
+                'name': name,
+                'market_type': market_type,
+                'added': not is_existing
+            }
+            if is_existing:
+                logger.info(f"股票已在自选股列表中: {code} ({name}) [{market_type}股]")
+            else:
+                logger.info(f"成功添加到自选股: {code} ({name}) [{market_type}股]")
+            return result
+        else:
+            logger.error(f"添加到自选股失败: {code}")
+            return None
+    
+    def fetch_and_save_watchlist(self) -> Dict:
+        """
+        拉取并保存自选股列表中所有股票的数据
+        
+        根据股票的类型（A股或港股）使用不同的数据源适配器，
+        并将数据保存到对应的表中（stock_a_data 或 stock_h_data）。
+        
+        Returns:
+            统计信息字典
+        """
+        if not self.local_db:
+            logger.error("未设置本地数据库")
+            return {'success': False, 'error': 'No local_db provided'}
+        
+        # 获取自选股列表
+        watchlist = self.local_db.get_watchlist()
+        if not watchlist:
+            logger.info("自选股列表为空")
+            return {'success': True, 'total': 0, 'updated': 0, 'skipped': 0, 'new_records': 0}
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"开始处理自选股列表，共 {len(watchlist)} 只股票")
+        logger.info(f"{'='*60}")
+        
+        stats = {
+            'success': True,
+            'total': len(watchlist),
+            'updated': 0,
+            'skipped': 0,
+            'new_records': 0,
+            'A': {'updated': 0, 'skipped': 0, 'new_records': 0},
+            'H': {'updated': 0, 'skipped': 0, 'new_records': 0},
+        }
+        
+        for i, stock in enumerate(watchlist):
+            code = stock['code']
+            name = stock['name'] or code
+            market_type = stock['market_type']
+            
+            logger.info(f"[{i+1}/{len(watchlist)}] 处理 {code} ({name}) [{market_type}股]...")
+            
+            try:
+                # 根据市场类型选择表名和适配器
+                if market_type == 'H':
+                    table_name = self.local_db.STOCK_H_TABLE
+                    # 港股使用港股适配器
+                    prices = self._fetch_hk_stock_history(code)
+                else:
+                    table_name = self.local_db.STOCK_A_TABLE
+                    # A股使用普通方法
+                    prices = self.get_stock_history(code, table_name)
+                
+                if prices:
+                    # 保存数据
+                    saved = self.local_db.save_prices(table_name, prices)
+                    stats['updated'] += 1
+                    stats['new_records'] += saved
+                    stats[market_type]['updated'] += 1
+                    stats[market_type]['new_records'] += saved
+                    
+                    # 更新最后同步日期
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    self.local_db.update_watchlist_sync_date(code, today)
+                    
+                    logger.info(f"  [OK] 新增/更新 {saved} 条记录")
+                else:
+                    stats['skipped'] += 1
+                    stats[market_type]['skipped'] += 1
+                    logger.info(f"  [SKIP] 无新数据或已是最新")
+                
+                # 延时避免请求过快
+                if i < len(watchlist) - 1:
+                    import time
+                    time.sleep(0.5)
+                    
+            except Exception as e:
+                logger.error(f"  [ERROR] 处理 {code} 失败: {e}")
+                stats['success'] = False
+        
+        logger.info(f"\n自选股处理完成:")
+        logger.info(f"  总计: {stats['total']} 只")
+        logger.info(f"  更新: {stats['updated']} 只, 跳过: {stats['skipped']} 只")
+        logger.info(f"  新增记录: {stats['new_records']} 条")
+        logger.info(f"  A股: 更新 {stats['A']['updated']}, 新增记录 {stats['A']['new_records']}")
+        logger.info(f"  港股: 更新 {stats['H']['updated']}, 新增记录 {stats['H']['new_records']}")
+        
+        return stats
+    
+    def _fetch_hk_stock_history(self, code: str) -> List[Dict]:
+        """
+        获取港股历史数据
+        
+        Args:
+            code: 港股代码
+            
+        Returns:
+            历史数据列表
+        """
+        if not ak:
+            logger.error("akshare 未安装")
+            return []
+        
+        try:
+            # 获取日期范围
+            table_name = self.local_db.STOCK_H_TABLE
+            start_date, end_date = self._get_date_range(table_name, code)
+            
+            logger.info(f"  获取港股数据: {code}, 范围: {start_date} ~ {end_date}")
+            
+            # 使用akshare获取港股数据
+            df = ak.stock_hk_hist(symbol=code, period="daily", 
+                                  start_date=start_date, end_date=end_date, adjust="qfq")
+            
+            if df is None or df.empty:
+                logger.info(f"  无新数据")
+                return []
+            
+            # 转换列名
+            df = df.rename(columns={
+                '日期': 'date',
+                '开盘': 'open',
+                '收盘': 'close',
+                '最高': 'high',
+                '最低': 'low',
+                '成交量': 'volume',
+                '成交额': 'amount',
+                '涨跌幅': 'change_pct',
+                '换手率': 'turnover_rate',
+            })
+            
+            # 计算均线
+            df['ma5'] = df['close'].rolling(window=5, min_periods=1).mean().round(3)
+            df['ma10'] = df['close'].rolling(window=10, min_periods=1).mean().round(3)
+            df['ma20'] = df['close'].rolling(window=20, min_periods=1).mean().round(3)
+            df['ma60'] = df['close'].rolling(window=60, min_periods=1).mean().round(3)
+            
+            # 构建记录列表
+            records = []
+            for _, row in df.iterrows():
+                records.append({
+                    'code': code,
+                    'date': row['date'],
+                    'open': self._safe_float(row['open']),
+                    'high': self._safe_float(row['high']),
+                    'low': self._safe_float(row['low']),
+                    'close': self._safe_float(row['close']),
+                    'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
+                    'amount': self._safe_float(row['amount']),
+                    'ma5': self._safe_float(row['ma5']),
+                    'ma10': self._safe_float(row['ma10']),
+                    'ma20': self._safe_float(row['ma20']),
+                    'ma60': self._safe_float(row['ma60']),
+                    'change_pct': self._safe_float(row['change_pct']),
+                    'turnover_rate': self._safe_float(row['turnover_rate']),
+                })
+            
+            return records
+            
+        except Exception as e:
+            logger.error(f"  获取港股数据失败 {code}: {e}")
+            return []
