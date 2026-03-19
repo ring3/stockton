@@ -369,12 +369,14 @@ class StockDataFetcher:
             'new_records': total_new_records
         }
     
-    def fetch_all(self, indices: List[str] = None) -> Dict:
+    def fetch_all(self, indices: List[str] = None, 
+                  update_stock_info: bool = True) -> Dict:
         """
         获取所有数据并保存到本地数据库（增量更新）
         
         Args:
             indices: 要获取的指数列表，默认所有配置的指数
+            update_stock_info: 是否更新股票基本信息
             
         Returns:
             统计信息
@@ -418,6 +420,41 @@ class StockDataFetcher:
         if watchlist_stats.get('success'):
             stats['total_new_records'] += watchlist_stats.get('new_records', 0)
         
+        # 更新股票基本信息
+        if update_stock_info and self.local_db:
+            logger.info(f"\n{'='*60}")
+            logger.info("开始更新股票基本信息")
+            logger.info(f"{'='*60}")
+            
+            # 收集需要更新的股票代码
+            codes_to_update = set()
+            
+            # 从指数成分股收集
+            for index_code in indices:
+                components = self.local_db.get_index_components(index_code)
+                for comp in components:
+                    codes_to_update.add(comp['stock_code'])
+            
+            # 从自选股收集
+            watchlist = self.local_db.get_watchlist()
+            for stock in watchlist:
+                codes_to_update.add(stock['code'])
+            
+            # 从ETF收集
+            for etf_code in self.etfs.keys():
+                codes_to_update.add(etf_code)
+            
+            if codes_to_update:
+                stock_info_stats = self.fetch_and_save_stock_basic_info(list(codes_to_update))
+                stats['stock_info'] = stock_info_stats
+                
+                # 更新自选股名称
+                if stock_info_stats.get('saved', 0) > 0:
+                    name_update_stats = self.update_watchlist_stock_names()
+                    stats['watchlist_name_update'] = name_update_stats
+            else:
+                logger.info("没有需要更新股票基本信息的代码")
+        
         end_time = datetime.now()
         stats['end_time'] = end_time.isoformat()
         stats['duration_seconds'] = (end_time - start_time).total_seconds()
@@ -425,6 +462,7 @@ class StockDataFetcher:
         # 获取表统计
         if self.local_db:
             stats['table_stats'] = self.local_db.get_table_stats()
+            stats['stock_info_stats'] = self.local_db.get_stock_info_stats()
         
         return stats
     
@@ -436,6 +474,152 @@ class StockDataFetcher:
             return float(value)
         except:
             return None
+    
+    # ============================================================
+    # 股票基本信息相关方法
+    # ============================================================
+    
+    def fetch_and_save_stock_basic_info(self, codes: List[str]) -> Dict:
+        """
+        批量获取并保存股票基本信息
+        
+        Args:
+            codes: 股票代码列表
+            
+        Returns:
+            统计信息字典
+        """
+        if not self.local_db:
+            logger.error("未设置本地数据库")
+            return {'success': False, 'error': 'No local_db provided'}
+        
+        if not codes:
+            logger.info("股票代码列表为空")
+            return {'success': True, 'total': 0, 'saved': 0}
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"开始获取股票基本信息，共 {len(codes)} 只")
+        logger.info(f"{'='*60}")
+        
+        stats = {
+            'success': True,
+            'total': len(codes),
+            'saved': 0,
+            'failed': 0,
+            'skipped': 0,
+            'info_list': []
+        }
+        
+        for i, code in enumerate(codes):
+            logger.info(f"[{i+1}/{len(codes)}] 获取 {code} 基本信息...")
+            
+            # 检查是否已存在且近期更新过（7天内）
+            existing = self.local_db.get_stock_basic_info(code)
+            if existing and existing.get('updated_at'):
+                from datetime import datetime, timedelta
+                updated_at = datetime.fromisoformat(existing['updated_at'])
+                if datetime.now() - updated_at < timedelta(days=7):
+                    logger.info(f"  [SKIP] {code} 信息已存在且7天内更新过")
+                    stats['skipped'] += 1
+                    continue
+            
+            try:
+                # 从数据源获取
+                info = self.data_source.get_stock_basic_info(code)
+                
+                if info and info.get('name'):
+                    # 保存到本地数据库
+                    success = self.local_db.save_stock_basic_info(
+                        info, 
+                        data_source=self.data_source.current_source_name
+                    )
+                    if success:
+                        stats['saved'] += 1
+                        stats['info_list'].append(info)
+                        logger.info(f"  [OK] {code} - {info.get('name')}")
+                    else:
+                        stats['failed'] += 1
+                        logger.warning(f"  [FAIL] {code} 保存失败")
+                else:
+                    stats['failed'] += 1
+                    logger.warning(f"  [FAIL] {code} 获取不到数据")
+                
+                # 延时避免请求过快
+                if i < len(codes) - 1:
+                    import time
+                    time.sleep(0.5)
+                    
+            except Exception as e:
+                stats['failed'] += 1
+                logger.error(f"  [ERROR] {code} 获取失败: {e}")
+        
+        logger.info(f"\n股票基本信息获取完成:")
+        logger.info(f"  总计: {stats['total']} 只")
+        logger.info(f"  成功保存: {stats['saved']} 只")
+        logger.info(f"  跳过: {stats['skipped']} 只")
+        logger.info(f"  失败: {stats['failed']} 只")
+        
+        return stats
+    
+    def update_watchlist_stock_names(self) -> Dict:
+        """
+        更新自选股列表中的股票名称
+        
+        从 stock_basic_info 表中获取名称，更新到 watchlist 表
+        
+        Returns:
+            统计信息字典
+        """
+        if not self.local_db:
+            logger.error("未设置本地数据库")
+            return {'success': False, 'error': 'No local_db provided'}
+        
+        # 获取自选股列表
+        watchlist = self.local_db.get_watchlist()
+        if not watchlist:
+            logger.info("自选股列表为空")
+            return {'success': True, 'total': 0, 'updated': 0}
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"开始更新自选股名称，共 {len(watchlist)} 只")
+        logger.info(f"{'='*60}")
+        
+        stats = {
+            'success': True,
+            'total': len(watchlist),
+            'updated': 0,
+            'skipped': 0,
+            'failed': 0
+        }
+        
+        for stock in watchlist:
+            code = stock['code']
+            current_name = stock['name']
+            
+            # 从股票信息表获取名称
+            info = self.local_db.get_stock_basic_info(code)
+            if info and info.get('name'):
+                new_name = info['name']
+                if new_name and new_name != current_name:
+                    # 更新 watchlist
+                    if self.local_db.add_to_watchlist(code, new_name, stock['market_type']):
+                        logger.info(f"  [UPDATE] {code}: {current_name} -> {new_name}")
+                        stats['updated'] += 1
+                    else:
+                        stats['failed'] += 1
+                else:
+                    stats['skipped'] += 1
+            else:
+                logger.debug(f"  [SKIP] {code} 未找到股票信息")
+                stats['skipped'] += 1
+        
+        logger.info(f"\n自选股名称更新完成:")
+        logger.info(f"  总计: {stats['total']} 只")
+        logger.info(f"  更新: {stats['updated']} 只")
+        logger.info(f"  跳过: {stats['skipped']} 只")
+        logger.info(f"  失败: {stats['failed']} 只")
+        
+        return stats
     
     # ============================================================
     # 自选股相关方法

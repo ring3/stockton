@@ -94,6 +94,12 @@ def parse_args():
                         choices=['akshare_tx', 'akshare_sina', 'akshare_em', 'baostock', 'akshare', 'efinance'],
                         help='数据源选择 (默认: akshare_tx 腾讯，其他: akshare_sina 新浪, akshare_em 东财, baostock)')
     
+    parser.add_argument('--skip-stock-info', action='store_true',
+                        help='跳过更新股票基本信息')
+    
+    parser.add_argument('--update-stock-info-only', action='store_true',
+                        help='仅更新股票基本信息，不获取价格数据')
+    
     return parser.parse_args()
 
 
@@ -106,12 +112,69 @@ def main():
     logger.info("=" * 80)
     logger.info(f"本地数据库: {args.db_path}")
     logger.info(f"Workers URL: {args.url or '未设置'}")
-    logger.info(f"模式: {'仅获取' if args.fetch_only else ('仅同步' if args.sync_only else '完整流程')}")
-    logger.info(f"数据源: {args.data_source})")
+    
+    # 确定模式
+    mode_str = '完整流程'
+    if args.fetch_only:
+        mode_str = '仅获取'
+    elif args.sync_only:
+        mode_str = '仅同步'
+    elif args.update_stock_info_only:
+        mode_str = '仅更新股票信息'
+    
+    logger.info(f"模式: {mode_str}")
+    logger.info(f"数据源: {args.data_source}")
+    if not args.skip_stock_info and not args.update_stock_info_only:
+        logger.info("股票信息: 自动更新")
     logger.info("=" * 80)
     
     # 初始化本地数据库
     local_db = LocalDatabase(args.db_path)
+    
+    # 模式: 仅更新股票基本信息
+    if args.update_stock_info_only:
+        logger.info("\n[模式] 仅更新股票基本信息\n")
+        
+        fetcher = StockDataFetcher(local_db=local_db, preferred_source=args.data_source)
+        
+        # 收集需要更新的股票代码
+        codes_to_update = set()
+        
+        # 从指数成分股收集
+        indices = [x.strip() for x in args.indices.split(',') if x.strip()]
+        for index_code in indices:
+            components = local_db.get_index_components(index_code)
+            for comp in components:
+                codes_to_update.add(comp['stock_code'])
+        
+        # 从自选股收集
+        watchlist = local_db.get_watchlist()
+        for stock in watchlist:
+            codes_to_update.add(stock['code'])
+        
+        # 从ETF收集
+        for etf_code in fetcher.etfs.keys():
+            codes_to_update.add(etf_code)
+        
+        logger.info(f"共收集到 {len(codes_to_update)} 只待更新股票")
+        
+        if codes_to_update:
+            # 更新股票基本信息
+            stats = fetcher.fetch_and_save_stock_basic_info(list(codes_to_update))
+            
+            # 更新自选股名称
+            if stats.get('saved', 0) > 0:
+                fetcher.update_watchlist_stock_names()
+            
+            logger.info("\n" + "=" * 80)
+            logger.info("股票信息更新完成!")
+            logger.info(f"总计: {stats['total']} 只")
+            logger.info(f"成功: {stats['saved']} 只")
+            logger.info(f"跳过: {stats['skipped']} 只")
+            logger.info(f"失败: {stats['failed']} 只")
+            logger.info("=" * 80)
+        
+        return
     
     # 检查/更新指数成分股（除非跳过）
     if not args.skip_components_check:
@@ -139,8 +202,11 @@ def main():
         # 解析指数列表
         indices = [x.strip() for x in args.indices.split(',') if x.strip()]
         
-        # 获取数据
-        stats = fetcher.fetch_all(indices=indices)
+        # 获取数据（根据参数决定是否更新股票信息）
+        stats = fetcher.fetch_all(
+            indices=indices,
+            update_stock_info=not args.skip_stock_info
+        )
         
         logger.info("\n" + "=" * 80)
         logger.info("获取完成!")
@@ -149,6 +215,9 @@ def main():
         logger.info("表统计:")
         for code, count in stats.get('table_stats', {}).items():
             logger.info(f"  {code}: {count} 条")
+        if 'stock_info_stats' in stats:
+            si_stats = stats['stock_info_stats']
+            logger.info(f"股票信息: {si_stats.get('total_count', 0)} 只")
         logger.info("=" * 80)
         
         return
@@ -187,15 +256,18 @@ def main():
     # 模式3: 完整流程 (获取 + 同步)
     if not args.url or not args.api_key:
         logger.error("错误: 完整流程需要提供 --url 和 --api-key (或设置环境变量)")
-        logger.exit(1)
+        sys.exit(1)
     
     logger.info("\n[模式] 完整流程: 获取数据 + 同步到 Workers\n")
     
     # 步骤1: 获取数据
     logger.info("步骤 1/2: 获取数据...")
-    fetcher = StockDataFetcher(local_db=local_db)
+    fetcher = StockDataFetcher(local_db=local_db, preferred_source=args.data_source)
     indices = [x.strip() for x in args.indices.split(',') if x.strip()]
-    fetch_stats = fetcher.fetch_all(indices=indices)
+    fetch_stats = fetcher.fetch_all(
+        indices=indices,
+        update_stock_info=not args.skip_stock_info
+    )
     
     logger.info(f"获取完成: {fetch_stats['total_new_records']} 条记录")
     

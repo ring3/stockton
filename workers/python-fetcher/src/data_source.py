@@ -302,6 +302,28 @@ class DataSourceAdapter(ABC):
         """获取指数成分股"""
         pass
     
+    def get_stock_basic_info(self, code: str) -> Dict:
+        """
+        获取股票基本信息
+        
+        可选实现，默认返回空字典
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            股票基本信息字典，包含字段：
+            - code: 股票代码
+            - name: 股票名称
+            - industry: 所属行业
+            - list_date: 上市日期 (YYYYMMDD)
+            - total_shares: 总股本
+            - float_shares: 流通股本
+            - total_mv: 总市值
+            - circ_mv: 流通市值
+        """
+        return {}
+    
     def is_available(self) -> bool:
         """检查数据源是否可用"""
         try:
@@ -431,6 +453,60 @@ class AkshareEastmoneyAdapter(DataSourceAdapter):
             })
         
         return components
+    
+    def get_stock_basic_info(self, code: str) -> Dict:
+        """
+        获取股票基本信息（东方财富）
+        
+        使用 akshare.stock_individual_info_em 接口
+        
+        Args:
+            code: 股票代码，如 '000001', '600519'
+            
+        Returns:
+            股票基本信息字典
+        """
+        try:
+            logger.info(f"[akshare_em] 获取 {code} 基本信息...")
+            
+            df = self.ak.stock_individual_info_em(symbol=code)
+            
+            if df is None or df.empty:
+                logger.warning(f"[akshare_em] {code} 返回空数据")
+                return {}
+            
+            # 转换为字典
+            info_dict = dict(zip(df['item'], df['value']))
+            
+            def safe_float(val):
+                try:
+                    if pd.isna(val) or val is None or val == '':
+                        return 0.0
+                    return float(val)
+                except:
+                    return 0.0
+            
+            result = {
+                'code': code,
+                'name': str(info_dict.get('股票简称', '')),
+                'industry': str(info_dict.get('行业', '')),
+                'list_date': str(info_dict.get('上市时间', '')),
+                'total_shares': safe_float(info_dict.get('总股本')),
+                'float_shares': safe_float(info_dict.get('流通股')),
+                'total_mv': safe_float(info_dict.get('总市值')),
+                'circ_mv': safe_float(info_dict.get('流通市值')),
+            }
+            
+            if result['name']:
+                logger.info(f"[akshare_em] 成功获取 {code} 基本信息: {result['name']}")
+                return result
+            else:
+                logger.warning(f"[akshare_em] {code} 返回数据但名称为空")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"[akshare_em] 获取 {code} 基本信息失败: {e}")
+            return {}
 
 
 class AkshareSinaAdapter(DataSourceAdapter):
@@ -802,6 +878,66 @@ class BaostockAdapter(DataSourceAdapter):
             })
         
         return components
+    
+    def get_stock_basic_info(self, code: str) -> Dict:
+        """
+        获取股票基本信息（Baostock）
+        
+        使用 query_stock_basic 接口
+        
+        Args:
+            code: 股票代码，如 '000001', '600519'
+            
+        Returns:
+            股票基本信息字典
+        """
+        if not self._login():
+            return {}
+        
+        try:
+            bs_code = to_baostock_code(code)
+            logger.info(f"[baostock] 获取 {code} ({bs_code}) 基本信息...")
+            
+            # 查询证券基本资料
+            rs = self.bs.query_stock_basic(code=bs_code)
+            
+            if rs.error_code != '0':
+                logger.error(f"[baostock] 查询失败: {rs.error_msg}")
+                return {}
+            
+            # 获取数据
+            data_list = []
+            while rs.next():
+                data_list.append(rs.get_row_data())
+            
+            if not data_list:
+                logger.warning(f"[baostock] {code} 返回空数据")
+                return {}
+            
+            # 解析数据
+            data = data_list[0]
+            fields = rs.fields
+            row_dict = dict(zip(fields, data))
+            
+            result = {
+                'code': code,
+                'name': row_dict.get('code_name', ''),
+                'industry': '',  # baostock 基本信息接口没有行业
+                'list_date': row_dict.get('ipoDate', '').replace('-', ''),
+                'total_shares': 0.0,
+                'float_shares': 0.0,
+                'total_mv': 0.0,
+                'circ_mv': 0.0,
+                'out_date': row_dict.get('outDate', ''),
+                'status': '上市' if row_dict.get('status') == '1' else '退市',
+            }
+            
+            logger.info(f"[baostock] 成功获取 {code} 基本信息: {result['name']}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[baostock] 获取 {code} 基本信息失败: {e}")
+            return {}
 
 
 class AkshareHEastmoneyAdapter(DataSourceAdapter):
@@ -1216,6 +1352,85 @@ class DataSourceManager:
         # 所有适配器都失败，返回空列表（非致命错误）
         logger.error(f"所有数据源都无法获取指数 {index_code} 成分股")
         return []
+    
+    def get_stock_basic_info(self, code: str) -> Dict:
+        """
+        获取股票基本信息，支持自动故障切换
+        
+        按优先级尝试各数据源：
+        1. akshare_em（数据最全：名称、行业、市值等）
+        2. baostock（有名称和上市日期）
+        3. 其他数据源
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            股票基本信息字典，所有数据源都失败返回空字典
+        """
+        failed_adapters = set()
+        last_error = None
+        
+        # 策略1: 优先使用 akshare_em（数据最全）
+        if 'akshare_em' in self.adapters:
+            try:
+                logger.debug(f"使用 akshare_em 获取 {code} 基本信息")
+                return run_with_timeout(
+                    self.adapters['akshare_em'].get_stock_basic_info,
+                    REQUEST_TIMEOUT,
+                    code
+                )
+            except TimeoutError as e:
+                failed_adapters.add('akshare_em')
+                last_error = e
+                logger.warning(f"akshare_em 获取 {code} 基本信息超时")
+            except Exception as e:
+                failed_adapters.add('akshare_em')
+                last_error = e
+                logger.warning(f"akshare_em 获取 {code} 基本信息失败: {e}")
+        
+        # 策略2: 尝试 baostock（有名称和上市日期）
+        if 'baostock' in self.adapters and 'baostock' not in failed_adapters:
+            try:
+                logger.debug(f"使用 baostock 获取 {code} 基本信息")
+                return run_with_timeout(
+                    self.adapters['baostock'].get_stock_basic_info,
+                    REQUEST_TIMEOUT,
+                    code
+                )
+            except TimeoutError as e:
+                failed_adapters.add('baostock')
+                last_error = e
+                logger.warning(f"baostock 获取 {code} 基本信息超时")
+            except Exception as e:
+                failed_adapters.add('baostock')
+                last_error = e
+                logger.warning(f"baostock 获取 {code} 基本信息失败: {e}")
+        
+        # 策略3: 尝试其他适配器
+        for name, adapter in self._get_fallback_adapters(failed_adapters):
+            try:
+                logger.info(f"切换到 {name} 获取 {code} 基本信息")
+                result = run_with_timeout(
+                    adapter.get_stock_basic_info,
+                    REQUEST_TIMEOUT,
+                    code
+                )
+                if result and result.get('name'):
+                    logger.info(f"使用 {name} 成功获取 {code} 基本信息")
+                    return result
+            except TimeoutError as e:
+                failed_adapters.add(name)
+                last_error = e
+                logger.warning(f"{name} 获取 {code} 基本信息超时")
+            except Exception as e:
+                failed_adapters.add(name)
+                last_error = e
+                logger.warning(f"{name} 获取 {code} 基本信息失败: {e}")
+        
+        # 所有适配器都失败
+        logger.error(f"所有数据源都无法获取 {code} 基本信息")
+        return {}
     
     @property
     def current_source_name(self) -> str:

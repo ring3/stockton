@@ -31,6 +31,9 @@ class LocalDatabase:
         '510500': '中证500ETF',
     }
     
+    # 股票基本信息表
+    STOCK_INFO_TABLE = 'stock_basic_info'
+    
     def __init__(self, db_path: str = './data/stock_data.db'):
         """
         初始化本地数据库
@@ -83,6 +86,10 @@ class LocalDatabase:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # 创建股票基本信息表
+        self._create_stock_info_table(cursor)
+        logger.info(f"初始化股票信息表: {self.STOCK_INFO_TABLE}")
         
         conn.commit()
         conn.close()
@@ -211,6 +218,39 @@ class LocalDatabase:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_components_update_date 
             ON data_index_components(update_date)
+        ''')
+    
+    def _create_stock_info_table(self, cursor: sqlite3.Cursor):
+        """创建股票基本信息表"""
+        cursor.execute(f'''
+            CREATE TABLE IF NOT EXISTS {self.STOCK_INFO_TABLE} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,       -- 股票代码
+                name TEXT,                       -- 股票名称
+                industry TEXT,                   -- 所属行业
+                list_date TEXT,                  -- 上市日期 (YYYYMMDD)
+                total_shares REAL,               -- 总股本
+                float_shares REAL,               -- 流通股本
+                total_mv REAL,                   -- 总市值
+                circ_mv REAL,                    -- 流通市值
+                data_source TEXT,                -- 数据来源
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 创建索引
+        cursor.execute(f'''
+            CREATE INDEX IF NOT EXISTS idx_stock_info_code 
+            ON {self.STOCK_INFO_TABLE}(code)
+        ''')
+        cursor.execute(f'''
+            CREATE INDEX IF NOT EXISTS idx_stock_info_industry 
+            ON {self.STOCK_INFO_TABLE}(industry)
+        ''')
+        cursor.execute(f'''
+            CREATE INDEX IF NOT EXISTS idx_stock_info_updated 
+            ON {self.STOCK_INFO_TABLE}(updated_at)
         ''')
     
     def save_prices(self, table_name: str, prices: List[Dict]) -> int:
@@ -854,3 +894,277 @@ class LocalDatabase:
             logger.error(f"获取自选股信息失败 {code}: {e}")
             conn.close()
             return None
+    
+    # ============================================================
+    # 股票基本信息相关方法
+    # ============================================================
+    
+    def save_stock_basic_info(self, info: Dict, data_source: str = '') -> bool:
+        """
+        保存股票基本信息
+        
+        Args:
+            info: 股票信息字典，必须包含 'code' 和 'name' 字段
+            data_source: 数据来源标识
+            
+        Returns:
+            是否保存成功
+        """
+        if not info or not info.get('code'):
+            logger.warning("保存股票信息失败: 数据为空或没有code")
+            return False
+        
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(f'''
+                INSERT OR REPLACE INTO {self.STOCK_INFO_TABLE} 
+                (code, name, industry, list_date, total_shares, float_shares,
+                 total_mv, circ_mv, data_source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                info.get('code'),
+                info.get('name'),
+                info.get('industry'),
+                info.get('list_date'),
+                info.get('total_shares'),
+                info.get('float_shares'),
+                info.get('total_mv'),
+                info.get('circ_mv'),
+                data_source,
+                datetime.now().isoformat()
+            ))
+            
+            conn.commit()
+            conn.close()
+            logger.debug(f"保存股票信息成功: {info.get('code')} - {info.get('name')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存股票信息失败 {info.get('code')}: {e}")
+            conn.rollback()
+            conn.close()
+            return False
+    
+    def get_stock_basic_info(self, code: str) -> Optional[Dict]:
+        """
+        获取股票基本信息
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            股票信息字典，不存在则返回None
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(f'''
+                SELECT code, name, industry, list_date, total_shares, float_shares,
+                       total_mv, circ_mv, data_source, updated_at
+                FROM {self.STOCK_INFO_TABLE}
+                WHERE code = ?
+            ''', (code,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    'code': row['code'],
+                    'name': row['name'],
+                    'industry': row['industry'],
+                    'list_date': row['list_date'],
+                    'total_shares': row['total_shares'],
+                    'float_shares': row['float_shares'],
+                    'total_mv': row['total_mv'],
+                    'circ_mv': row['circ_mv'],
+                    'data_source': row['data_source'],
+                    'updated_at': row['updated_at']
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"获取股票信息失败 {code}: {e}")
+            conn.close()
+            return None
+    
+    def batch_save_stock_basic_info(self, info_list: List[Dict], data_source: str = '') -> int:
+        """
+        批量保存股票基本信息
+        
+        Args:
+            info_list: 股票信息字典列表
+            data_source: 数据来源标识
+            
+        Returns:
+            成功保存的数量
+        """
+        if not info_list:
+            return 0
+        
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        saved = 0
+        try:
+            for info in info_list:
+                if not info or not info.get('code'):
+                    continue
+                    
+                cursor.execute(f'''
+                    INSERT OR REPLACE INTO {self.STOCK_INFO_TABLE} 
+                    (code, name, industry, list_date, total_shares, float_shares,
+                     total_mv, circ_mv, data_source, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    info.get('code'),
+                    info.get('name'),
+                    info.get('industry'),
+                    info.get('list_date'),
+                    info.get('total_shares'),
+                    info.get('float_shares'),
+                    info.get('total_mv'),
+                    info.get('circ_mv'),
+                    data_source,
+                    datetime.now().isoformat()
+                ))
+                saved += 1
+            
+            conn.commit()
+            logger.info(f"批量保存股票信息成功: {saved} 只")
+            
+        except Exception as e:
+            logger.error(f"批量保存股票信息失败: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+        
+        return saved
+    
+    def get_all_stock_basic_info(self) -> List[Dict]:
+        """
+        获取所有股票基本信息
+        
+        Returns:
+            股票信息列表
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(f'''
+                SELECT code, name, industry, list_date, total_shares, float_shares,
+                       total_mv, circ_mv, data_source, updated_at
+                FROM {self.STOCK_INFO_TABLE}
+                ORDER BY code
+            ''')
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            return [{
+                'code': row['code'],
+                'name': row['name'],
+                'industry': row['industry'],
+                'list_date': row['list_date'],
+                'total_shares': row['total_shares'],
+                'float_shares': row['float_shares'],
+                'total_mv': row['total_mv'],
+                'circ_mv': row['circ_mv'],
+                'data_source': row['data_source'],
+                'updated_at': row['updated_at']
+            } for row in rows]
+            
+        except Exception as e:
+            logger.error(f"获取所有股票信息失败: {e}")
+            conn.close()
+            return []
+    
+    def search_stock_by_name(self, name_keyword: str) -> List[Dict]:
+        """
+        根据名称关键字搜索股票
+        
+        Args:
+            name_keyword: 名称关键字
+            
+        Returns:
+            匹配的股票列表
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(f'''
+                SELECT code, name, industry, list_date, total_shares, float_shares,
+                       total_mv, circ_mv, data_source, updated_at
+                FROM {self.STOCK_INFO_TABLE}
+                WHERE name LIKE ?
+                ORDER BY code
+            ''', (f'%{name_keyword}%',))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            return [{
+                'code': row['code'],
+                'name': row['name'],
+                'industry': row['industry'],
+                'list_date': row['list_date'],
+                'total_shares': row['total_shares'],
+                'float_shares': row['float_shares'],
+                'total_mv': row['total_mv'],
+                'circ_mv': row['circ_mv'],
+                'data_source': row['data_source'],
+                'updated_at': row['updated_at']
+            } for row in rows]
+            
+        except Exception as e:
+            logger.error(f"搜索股票失败 {name_keyword}: {e}")
+            conn.close()
+            return []
+    
+    def get_stock_info_stats(self) -> Dict:
+        """
+        获取股票信息统计
+        
+        Returns:
+            统计信息字典
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        stats = {
+            'total_count': 0,
+            'with_name': 0,
+            'with_industry': 0,
+            'latest_update': None
+        }
+        
+        try:
+            # 总数
+            cursor.execute(f'SELECT COUNT(*) FROM {self.STOCK_INFO_TABLE}')
+            stats['total_count'] = cursor.fetchone()[0]
+            
+            # 有名称的数量
+            cursor.execute(f"SELECT COUNT(*) FROM {self.STOCK_INFO_TABLE} WHERE name IS NOT NULL AND name != ''")
+            stats['with_name'] = cursor.fetchone()[0]
+            
+            # 有行业的数量
+            cursor.execute(f"SELECT COUNT(*) FROM {self.STOCK_INFO_TABLE} WHERE industry IS NOT NULL AND industry != ''")
+            stats['with_industry'] = cursor.fetchone()[0]
+            
+            # 最后更新时间
+            cursor.execute(f'SELECT MAX(updated_at) FROM {self.STOCK_INFO_TABLE}')
+            result = cursor.fetchone()
+            stats['latest_update'] = result[0] if result else None
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"获取股票信息统计失败: {e}")
+            conn.close()
+        
+        return stats

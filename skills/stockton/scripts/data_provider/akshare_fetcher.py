@@ -1472,6 +1472,146 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取 {stock_code} 财务指标失败: {e}")
             return pd.DataFrame()
 
+    def _get_stock_basic_info(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取股票基本信息
+        
+        使用多个数据源，按优先级尝试：
+        1. stock_individual_info_em (东方财富) - 主要数据源
+        2. stock_individual_basic_info_xq (雪球) - 备选
+        3. 实时行情接口 - 最后备选
+        
+        Args:
+            stock_code: 股票代码，如 '000001', '600519'
+            
+        Returns:
+            字典包含股票基本信息：
+            {
+                'code': '000001',
+                'name': '平安银行',
+                'industry': '银行',
+                'list_date': '19910403',
+                'total_shares': 19405918198.0,
+                'float_shares': 19405571850.0,
+                'total_mv': 221033408275.22,
+                'circ_mv': 221029463371.5,
+            }
+            获取失败返回空字典
+        """
+        cache_key = f"stock_basic_{stock_code}"
+        
+        # 检查缓存（缓存1小时）
+        cached_data = self._get_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+        
+        result = {
+            'code': stock_code,
+            'name': '',
+            'industry': '',
+            'list_date': '',
+            'total_shares': 0.0,
+            'float_shares': 0.0,
+            'total_mv': 0.0,
+            'circ_mv': 0.0,
+        }
+        
+        # ========== 方法1: 东方财富 stock_individual_info_em ==========
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 使用 stock_individual_info_em 获取 {stock_code} 信息...")
+            
+            df = self._ak.stock_individual_info_em(symbol=stock_code)
+            
+            if df is not None and not df.empty:
+                # 转换为字典
+                info_dict = dict(zip(df['item'], df['value']))
+                
+                result['name'] = str(info_dict.get('股票简称', ''))
+                result['industry'] = str(info_dict.get('行业', ''))
+                result['list_date'] = str(info_dict.get('上市时间', ''))
+                
+                # 数值字段转换
+                def safe_float(val):
+                    try:
+                        if pd.isna(val) or val is None or val == '':
+                            return 0.0
+                        return float(val)
+                    except:
+                        return 0.0
+                
+                result['total_shares'] = safe_float(info_dict.get('总股本'))
+                result['float_shares'] = safe_float(info_dict.get('流通股'))
+                result['total_mv'] = safe_float(info_dict.get('总市值'))
+                result['circ_mv'] = safe_float(info_dict.get('流通市值'))
+                
+                if result['name']:
+                    logger.info(f"[Akshare] stock_individual_info_em 成功: {stock_code} -> {result['name']}")
+                    self._set_cache(cache_key, result)
+                    return result
+                    
+        except Exception as e:
+            logger.warning(f"[Akshare] stock_individual_info_em 失败: {e}")
+        
+        # ========== 方法2: 雪球 stock_individual_basic_info_xq ==========
+        # 注意：该接口可能已失效，仅作为备选
+        try:
+            self._random_sleep()
+            logger.info(f"[Akshare] 使用 stock_individual_basic_info_xq 获取 {stock_code} 信息...")
+            
+            # 雪球需要带市场前缀
+            if stock_code.startswith('6'):
+                xq_symbol = f"SH{stock_code}"
+            elif stock_code.startswith(('0', '3')):
+                xq_symbol = f"SZ{stock_code}"
+            else:
+                xq_symbol = stock_code
+            
+            df = self._ak.stock_individual_basic_info_xq(symbol=xq_symbol)
+            
+            if df is not None and not df.empty:
+                info_dict = dict(zip(df['item'], df['value']))
+                
+                # 雪球接口字段名可能不同，需要根据实际返回调整
+                result['name'] = str(info_dict.get('股票简称', info_dict.get('name', '')))
+                result['industry'] = str(info_dict.get('行业', info_dict.get('industry', '')))
+                
+                if result['name']:
+                    logger.info(f"[Akshare] stock_individual_basic_info_xq 成功: {stock_code} -> {result['name']}")
+                    self._set_cache(cache_key, result)
+                    return result
+                    
+        except Exception as e:
+            logger.debug(f"[Akshare] stock_individual_basic_info_xq 失败: {e}")
+        
+        # ========== 方法3: 从实时行情获取基本信息 ==========
+        try:
+            logger.info(f"[Akshare] 尝试从实时行情获取 {stock_code} 信息...")
+            
+            # 获取实时行情
+            quote = self._get_realtime_quote(stock_code)
+            
+            if quote and quote.get('name'):
+                result['name'] = quote.get('name', '')
+                result['total_mv'] = quote.get('total_mv', 0.0)
+                result['circ_mv'] = quote.get('circ_mv', 0.0)
+                
+                logger.info(f"[Akshare] 从实时行情获取成功: {stock_code} -> {result['name']}")
+                self._set_cache(cache_key, result)
+                return result
+                
+        except Exception as e:
+            logger.debug(f"[Akshare] 从实时行情获取失败: {e}")
+        
+        # 所有方法都失败
+        if result['name']:
+            # 至少有名称，返回部分数据
+            self._set_cache(cache_key, result)
+            return result
+        
+        logger.warning(f"[Akshare] 无法获取 {stock_code} 的基本信息")
+        return {}
+
 
 if __name__ == "__main__":
     # 测试代码

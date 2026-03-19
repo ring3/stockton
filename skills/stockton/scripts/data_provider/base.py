@@ -363,6 +363,28 @@ class BaseFetcher(ABC):
         """
         pass
 
+    @abstractmethod
+    def _get_stock_basic_info(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取股票基本信息（用于显示股票名称、行业、市值等）
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            字典包含股票基本信息：
+            - code: 股票代码
+            - name: 股票名称
+            - industry: 所属行业
+            - list_date: 上市日期
+            - total_shares: 总股本
+            - float_shares: 流通股本
+            - total_mv: 总市值
+            - circ_mv: 流通市值
+            获取失败返回空字典
+        """
+        pass
+
     def get_daily_data(
         self,
         stock_code: str,
@@ -553,9 +575,10 @@ class DataFetcherManager:
 
         按优先级排序：
         1. EfinanceFetcher (Priority 0) - 优先尝试
-        2. AkshareFetcher (Priority 1) - 备用数据源
+        2. AkshareFetcher (Priority 1) - 主要备选
+        3. BaostockFetcher (Priority 2) - 最后备选（主要用于基本信息查询）
         
-        说明：两者都是可选的，只要有一个可用即可工作
+        说明：数据源都是可选的，只要有一个可用即可工作
         """
         # 优先尝试 efinance（如果安装）
         try:
@@ -573,6 +596,14 @@ class DataFetcherManager:
             logger.info("AkshareFetcher 已加载")
         except Exception as e:
             logger.warning(f"AkshareFetcher 不可用: {e}")
+        
+        # 第二备选：baostock（主要用于股票基本信息查询）
+        try:
+            from .baostock_fetcher import BaostockFetcher
+            self._fetchers.append(BaostockFetcher())
+            logger.info("BaostockFetcher 已加载")
+        except Exception as e:
+            logger.debug(f"BaostockFetcher 不可用: {e}")
 
         # 按优先级排序
         self._fetchers.sort(key=lambda f: f.priority)
@@ -584,6 +615,7 @@ class DataFetcherManager:
             logger.error("没有可用的数据源！请安装至少一个数据源：")
             logger.error("  pip install efinance    # 推荐，更稳定")
             logger.error("  pip install akshare     # 备用")
+            logger.error("  pip install baostock    # 证券宝备选")
 
     def add_fetcher(self, fetcher: BaseFetcher) -> None:
         """添加数据源并重新排序"""
@@ -995,6 +1027,39 @@ class DataFetcherManager:
         
         logger.warning("所有数据源获取行业列表失败，返回空数据")
         return pd.DataFrame(), "None"
+
+    def get_stock_basic_info(self, stock_code: str) -> Tuple[Dict[str, Any], str]:
+        """
+        获取股票基本信息（自动切换数据源）
+        
+        Args:
+            stock_code: 股票代码
+        
+        Returns:
+            Tuple[Dict, str]: (股票信息字典, 成功的数据源名称)
+            字典包含：code, name, industry, list_date, total_shares等
+        """
+        errors = []
+        
+        for fetcher in self._fetchers:
+            try:
+                logger.info(f"尝试使用 [{fetcher.name}] 获取 {stock_code} 基本信息...")
+                info = fetcher._get_stock_basic_info(stock_code)
+                
+                if info and info.get('name'):
+                    logger.info(f"[{fetcher.name}] 成功获取 {stock_code} 基本信息: {info.get('name')}")
+                    return info, fetcher.name
+                else:
+                    logger.debug(f"[{fetcher.name}] 返回空数据，尝试下一个数据源")
+                    
+            except Exception as e:
+                error_msg = f"[{fetcher.name}] 失败: {str(e)}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+        
+        logger.warning(f"所有数据源获取 {stock_code} 基本信息失败，返回空数据")
+        return {}, "None"
 
     # ========== 财务分析相关统一访问方法（新增）==========
 
