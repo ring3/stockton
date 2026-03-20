@@ -277,10 +277,26 @@ class StockScreener:
         },
     }
     
-    def __init__(self):
+    def __init__(self, use_local_db: bool = True):
         self._financial_cache = {}  # 财务数据缓存
+        self._use_local_db = use_local_db  # 是否优先使用本地数据库
         
-        # 初始化数据源管理器（优先使用，替代直接akshare调用）
+        # 初始化数据访问层（新增：优先使用 python-fetcher 数据库）
+        self._dal = None
+        if use_local_db:
+            try:
+                # 尝试相对导入（包内使用）
+                try:
+                    from .data_access import StocktonDataAccess
+                except ImportError:
+                    # 尝试绝对导入（独立脚本使用）
+                    from data_access import StocktonDataAccess
+                self._dal = StocktonDataAccess()
+                logger.debug("选股器已初始化数据访问层（本地数据库）")
+            except Exception as e:
+                logger.warning(f"选股器数据访问层初始化失败: {e}")
+        
+        # 保留数据源管理器作为备选（网络 fetch）
         self._data_manager = None
         try:
             # 尝试相对导入（包内使用）
@@ -290,7 +306,7 @@ class StockScreener:
                 # 尝试绝对导入（独立脚本使用）
                 from data_provider import DataFetcherManager
             self._data_manager = DataFetcherManager()
-            logger.debug("选股器已初始化数据源管理器")
+            logger.debug("选股器已初始化数据源管理器（网络）")
         except Exception as e:
             logger.warning(f"选股器数据源管理器初始化失败: {e}")
         
@@ -302,12 +318,12 @@ class StockScreener:
             logger.warning("akshare未安装")
             self._ak = None
         
-        # 初始化数据库连接
+        # 初始化数据库连接（Stockton 本地缓存）
         self._db = None
         if _HAS_DB:
             try:
                 self._db = DatabaseManager.get_instance()
-                logger.debug("选股器已连接数据库")
+                logger.debug("选股器已连接数据库（Stockton 本地缓存）")
             except Exception as e:
                 logger.warning(f"选股器数据库连接失败: {e}")
     
@@ -407,7 +423,16 @@ class StockScreener:
             if index_name:
                 return self._get_index_components(index_name)
             
-            # 优先使用数据源管理器（统一接口）
+            # 优先使用数据访问层（本地数据库）
+            if self._dal:
+                codes = self._dal.get_stock_pool(market)
+                if codes:
+                    logger.info(f"[选股] 从本地数据库获取 {market} 股票池: {len(codes)} 只")
+                    return codes
+                else:
+                    logger.warning(f"[选股] 本地数据库返回空数据，尝试网络获取")
+            
+            # 备选：使用数据源管理器（网络接口）
             if self._data_manager:
                 df, source = self._data_manager.get_stock_pool(market)
                 if df is not None and not df.empty:
@@ -463,17 +488,27 @@ class StockScreener:
             
             index_code = index_code_map[index_name]
             
-            # 方法1：从数据库缓存获取（优先）
+            # 方法1：从数据访问层获取（优先，python-fetcher 数据库）
+            if self._dal:
+                try:
+                    codes = self._dal.get_index_components(index_name)
+                    if codes:
+                        logger.info(f"[选股] 从本地数据库获取 {index_name} 成分股: {len(codes)} 只")
+                        return codes
+                except Exception as e:
+                    logger.debug(f"从数据访问层获取指数成分股失败: {e}")
+            
+            # 方法2：从 Stockton 本地缓存获取
             if self._db:
                 try:
                     cached = self._db.get_index_components(index_code, max_age_days=1)
                     if cached:
-                        logger.info(f"[选股] 从数据库缓存获取 {index_name} 成分股: {len(cached)} 只")
+                        logger.info(f"[选股] 从 Stockton 缓存获取 {index_name} 成分股: {len(cached)} 只")
                         return [item['stock_code'] for item in cached]
                 except Exception as e:
-                    logger.debug(f"从数据库获取指数成分股失败: {e}")
+                    logger.debug(f"从 Stockton 缓存获取指数成分股失败: {e}")
             
-            # 方法2：使用数据源管理器（统一接口）
+            # 方法3：使用数据源管理器（网络接口）
             if self._data_manager:
                 df, source = self._data_manager.get_index_components(index_code)
                 if df is not None and not df.empty:
@@ -529,7 +564,16 @@ class StockScreener:
         try:
             logger.info(f"[选股] 获取 {industry_name} 板块股票...")
             
-            # 优先使用数据源管理器（统一接口）
+            # 优先使用数据访问层（本地数据库）
+            if self._dal:
+                codes = self._dal.get_industry_stocks(industry_name)
+                if codes:
+                    logger.info(f"[选股] 从本地数据库获取行业 {industry_name} 成分股: {len(codes)} 只")
+                    return codes
+                else:
+                    logger.warning(f"[选股] 本地数据库返回空数据，尝试网络获取")
+            
+            # 备选：使用数据源管理器（网络接口）
             if self._data_manager:
                 df, source = self._data_manager.get_industry_stocks(industry_name)
                 if df is not None and not df.empty:
@@ -567,7 +611,14 @@ class StockScreener:
     def get_available_industries(self) -> List[str]:
         """获取可用的行业/板块列表（使用统一数据源接口）"""
         try:
-            # 优先使用数据源管理器
+            # 优先使用数据访问层（本地数据库）
+            if self._dal:
+                industries = self._dal.get_industry_list()
+                if industries:
+                    logger.info(f"[选股] 从本地数据库获取行业列表: {len(industries)} 个")
+                    return industries
+            
+            # 备选：使用数据源管理器（网络接口）
             if self._data_manager:
                 df, source = self._data_manager.get_industry_list()
                 if df is not None and not df.empty:
@@ -588,7 +639,7 @@ class StockScreener:
         """
         获取股票名称
         
-        优先从数据库获取，数据库没有则尝试从akshare获取
+        优先从本地数据库获取，失败则尝试其他途径
         
         Args:
             stock_code: 股票代码
@@ -596,14 +647,23 @@ class StockScreener:
         Returns:
             股票名称，找不到返回空字符串
         """
-        # 方法1：从数据库获取（最快）
+        # 方法1：从数据访问层获取（python-fetcher 数据库）
+        if self._dal:
+            try:
+                name = self._dal.get_stock_name(stock_code)
+                if name:
+                    return name
+            except Exception as e:
+                logger.debug(f"从数据访问层获取股票名称失败: {e}")
+        
+        # 方法2：从 Stockton 本地缓存获取
         if self._db:
             try:
                 name = self._db.get_stock_name(stock_code)
                 if name:
                     return name
             except Exception as e:
-                logger.debug(f"从数据库获取股票名称失败: {e}")
+                logger.debug(f"从 Stockton 缓存获取股票名称失败: {e}")
         
         # 方法2：尝试从指数成分股缓存获取
         # 这个方法保留作为备选，但现在已经不太需要了
@@ -678,11 +738,20 @@ class StockScreener:
         
         # === 技术面分析（基于数据库中的历史数据）===
         tech_data = None
-        if self._db:
+        
+        # 优先从数据访问层获取（python-fetcher 数据库）
+        if self._dal:
+            try:
+                tech_data = self._dal.get_latest_tech_data(stock_code)
+            except Exception as e:
+                logger.debug(f"从数据访问层获取技术指标失败: {e}")
+        
+        # 备选：从 Stockton 本地缓存获取
+        if not tech_data and self._db:
             try:
                 tech_data = self._db.get_latest_tech_data(stock_code)
             except Exception as e:
-                logger.debug(f"获取技术指标失败: {e}")
+                logger.debug(f"从 Stockton 缓存获取技术指标失败: {e}")
         
         if tech_data:
             result.current_price = tech_data.get('close', 0)
@@ -734,11 +803,20 @@ class StockScreener:
         
         # === 动量分析（多周期价格动量）===
         momentum_data = None
-        if self._db:
+        
+        # 优先从数据访问层获取（python-fetcher 数据库）
+        if self._dal:
+            try:
+                momentum_data = self._dal.get_momentum_data(stock_code)
+            except Exception as e:
+                logger.debug(f"从数据访问层获取动量数据失败: {e}")
+        
+        # 备选：从 Stockton 本地缓存获取
+        if not momentum_data and self._db:
             try:
                 momentum_data = self._db.get_momentum_data(stock_code)
             except Exception as e:
-                logger.debug(f"获取动量数据失败: {e}")
+                logger.debug(f"从 Stockton 缓存获取动量数据失败: {e}")
         
         momentum_score = 0  # 动量得分（额外加分项）
         
@@ -814,6 +892,32 @@ class StockScreener:
         if stock_code in self._financial_cache:
             return self._financial_cache[stock_code]
         
+        # 优先从数据访问层获取（python-fetcher 数据库）
+        if self._dal:
+            try:
+                fin_data = self._dal.get_financial_data(stock_code)
+                if fin_data and fin_data.get('name'):  # 至少要有名称才算有效
+                    # 转换为统一格式
+                    data = {
+                        'roe': fin_data.get('roe'),
+                        'revenue_growth': fin_data.get('revenue_growth'),
+                        'profit_growth': fin_data.get('profit_growth'),
+                        'debt_ratio': fin_data.get('debt_ratio'),
+                        'gross_margin': fin_data.get('gross_margin'),
+                        'net_margin': fin_data.get('net_margin'),
+                        'total_score': fin_data.get('total_score', 0),
+                        # 估值数据
+                        'pe_ratio': fin_data.get('pe_ratio'),
+                        'pb_ratio': fin_data.get('pb_ratio'),
+                        'total_mv': fin_data.get('total_mv', 0),
+                    }
+                    self._financial_cache[stock_code] = data
+                    logger.debug(f"从数据访问层获取 {stock_code} 财务数据")
+                    return data
+            except Exception as e:
+                logger.debug(f"从数据访问层获取 {stock_code} 财务数据失败: {e}")
+        
+        # 备选：从财务分析器获取（网络）
         try:
             # 导入财务分析器
             from .financial_analyzer import FinancialAnalyzer

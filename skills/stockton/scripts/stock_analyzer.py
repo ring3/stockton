@@ -36,6 +36,14 @@ from data_fetcher import (
     get_stock_data
 )
 
+# 新增：从本地数据库读取数据（替代网络 fetch）
+try:
+    from data_access import StocktonDataAccess, get_stock_name as _get_stock_name_from_db
+    _HAS_DATA_ACCESS = True
+except ImportError:
+    _HAS_DATA_ACCESS = False
+    logger.warning("data_access 模块不可用，将使用网络 fetch")
+
 logger = logging.getLogger(__name__)
 
 
@@ -538,10 +546,60 @@ class StockTrendAnalyzer:
 # OpenClaw 工具函数
 # =============================================================================
 
+def _get_daily_data_from_db(stock_code: str, days: int = 60) -> tuple:
+    """
+    从本地数据库获取日线数据
+    
+    Returns:
+        (success: bool, daily_data: List[StockDailyData], name: str, error_msg: str)
+    """
+    if not _HAS_DATA_ACCESS:
+        return False, [], "", "data_access 模块不可用"
+    
+    try:
+        dal = StocktonDataAccess()
+        df = dal.get_daily_data(stock_code, days=days)
+        
+        if df is None or df.empty:
+            return False, [], "", f"未找到 {stock_code} 的数据"
+        
+        # 获取股票名称
+        name = dal.get_stock_name(stock_code)
+        
+        # 将 DataFrame 转换为 StockDailyData 列表
+        daily_data = []
+        for _, row in df.iterrows():
+            data = StockDailyData(
+                date=str(row['date']),
+                code=stock_code,
+                open=float(row['open']) if pd.notna(row['open']) else 0.0,
+                high=float(row['high']) if pd.notna(row['high']) else 0.0,
+                low=float(row['low']) if pd.notna(row['low']) else 0.0,
+                close=float(row['close']) if pd.notna(row['close']) else 0.0,
+                volume=float(row['volume']) if pd.notna(row['volume']) else 0.0,
+                amount=float(row['amount']) if pd.notna(row['amount']) else 0.0,
+                pct_chg=float(row['change_pct']) if pd.notna(row['change_pct']) else 0.0,
+                ma5=float(row['ma5']) if pd.notna(row['ma5']) else None,
+                ma10=float(row['ma10']) if pd.notna(row['ma10']) else None,
+                ma20=float(row['ma20']) if pd.notna(row['ma20']) else None,
+                ma60=float(row['ma60']) if pd.notna(row['ma60']) else None,
+                volume_ratio=float(row['volume_ratio']) if pd.notna(row['volume_ratio']) else None,
+                data_source="local_db",
+            )
+            daily_data.append(data)
+        
+        return True, daily_data, name, ""
+        
+    except Exception as e:
+        logger.error(f"从数据库获取 {stock_code} 数据失败: {e}")
+        return False, [], "", str(e)
+
+
 def analyze_trend(
     stock_code: str,
     days: int = 60,
-    format_type: str = "dict"  # "dict", "json", "prompt"
+    format_type: str = "dict",  # "dict", "json", "prompt"
+    use_local_db: bool = True,  # 新增：是否优先使用本地数据库
 ) -> Union[Dict[str, Any], str]:
     """
     执行趋势分析（OpenClaw 工具）
@@ -553,32 +611,44 @@ def analyze_trend(
             - "dict": Python 字典（默认）
             - "json": JSON 字符串
             - "prompt": 格式化的提示词文本
+        use_local_db: 是否优先使用本地数据库（默认True）
             
     Returns:
         根据 format_type 返回不同格式的分析结果
     """
     try:
-        # 获取数据
-        data = get_stock_data(stock_code, days=days)
+        daily_data = []
+        name = ""
         
-        if not data['success']:
-            error_result = {
-                'success': False,
-                'code': stock_code,
-                'error': data.get('error_message', '获取数据失败'),
-            }
-            if format_type == 'json':
-                return json.dumps(error_result, ensure_ascii=False)
-            elif format_type == 'prompt':
-                return f"分析失败: {error_result['error']}"
-            return error_result
+        # 优先尝试从本地数据库获取
+        if use_local_db and _HAS_DATA_ACCESS:
+            success, daily_data, name, error_msg = _get_daily_data_from_db(stock_code, days)
+            if not success:
+                logger.warning(f"本地数据库获取失败: {error_msg}，尝试网络 fetch")
+                daily_data = []  # 重置，尝试网络获取
         
-        # 转换为 StockDailyData 对象
-        daily_data = [StockDailyData(**d) for d in data['daily_data']]
+        # 如果本地获取失败或未启用，使用网络 fetch
+        if not daily_data:
+            data = get_stock_data(stock_code, days=days)
+            
+            if not data['success']:
+                error_result = {
+                    'success': False,
+                    'code': stock_code,
+                    'error': data.get('error_message', '获取数据失败'),
+                }
+                if format_type == 'json':
+                    return json.dumps(error_result, ensure_ascii=False)
+                elif format_type == 'prompt':
+                    return f"分析失败: {error_result['error']}"
+                return error_result
+            
+            # 转换为 StockDailyData 对象
+            daily_data = [StockDailyData(**d) for d in data['daily_data']]
+            name = data.get('name', '')
         
         # 分析
         analyzer = StockTrendAnalyzer()
-        name = data.get('name', '')
         result = analyzer.analyze(daily_data, stock_code, name)
         
         if format_type == 'json':
