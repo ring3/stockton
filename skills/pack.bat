@@ -26,7 +26,7 @@ if "%HELP%"=="1" (
     echo 用法: pack.bat [选项]
     echo.
     echo 选项:
-    echo   --include-tests, -t    包含 tests 目录（默认不包含）
+    echo   --include-tests, -t    包含 tests 默认不包含
     echo   --help, -h            显示帮助
     echo.
     echo 示例:
